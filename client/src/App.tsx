@@ -2,7 +2,6 @@
 import React, { useState } from "react";
 import FileUploader from "./components/FileUploader";
 import TransactionList from "./components/TransactionList";
-import FileDownloader from "./components/FileDownloader";
 import ProcessingInfo from "./components/ProcessingInfo";
 import FileFormatInfo from "./components/FileFormatInfo";
 import type { ProcessedFile } from "./types";

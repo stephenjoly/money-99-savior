@@ -29,18 +29,43 @@ const FileUploader: React.FC<FileUploaderProps> = ({
       const formData = new FormData();
       formData.append("file", file);
 
-      const response = await fetch("http://localhost:5000/api/process-ofx", {
+      console.log("Uploading file:", file.name, "Size:", file.size);
+
+      const response = await fetch("/api/process-ofx", {
         method: "POST",
         body: formData,
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to process file");
+      console.log("Response status:", response.status);
+      console.log(
+        "Response headers:",
+        Object.fromEntries([...response.headers.entries()])
+      );
+
+      // Get the raw text response first
+      const rawText = await response.text();
+      console.log("Raw response length:", rawText.length);
+
+      if (rawText.length < 100) {
+        console.log("Raw response content:", rawText);
+      } else {
+        console.log("Raw response preview:", rawText.substring(0, 100) + "...");
       }
 
-      const data = await response.json();
-      onFileProcessed(data);
+      // If we have text, try to parse it as JSON
+      if (rawText) {
+        try {
+          const data = JSON.parse(rawText);
+          onFileProcessed(data);
+        } catch (parseError) {
+          console.error("Error parsing JSON:", parseError);
+          throw new Error(
+            "Invalid response format from server. Check console for details."
+          );
+        }
+      } else {
+        throw new Error("Empty response from server");
+      }
     } catch (err: any) {
       setError(err.message);
       console.error("Error uploading file:", err);

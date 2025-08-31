@@ -1,0 +1,12 @@
+services:
+  money-99-savior:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: money-99-savior
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - NODE_ENV=production
+      - PORT=5000
