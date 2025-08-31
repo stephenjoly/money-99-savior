@@ -3,7 +3,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
-import { DOMParser } from 'xmldom'; // You'll need to install this package
+import { DOMParser } from 'xmldom'; 
 
 const readFileAsync = promisify(fs.readFile);
 const writeFileAsync = promisify(fs.writeFile);
@@ -51,12 +51,16 @@ interface ProcessingStats {
 
 
 // Function to determine if the file is in XML format with closing tags
-function isXmlFormat(content: string): boolean {
-  return content.includes('</') || content.includes('/>');
+
+// Simple function to check if NAME elements have closing tags
+function hasNameClosingTags(content: string): boolean {
+  const hasNameClosingTag = content.includes('</NAME>');
+  console.log("Format detection: has </NAME> closing tags =", hasNameClosingTag);
+  return hasNameClosingTag;
 }
 
 // Extract transactions from XML format OFX
-function extractTransactionsFromXml(content: string): any[] {
+function extractTransactions(content: string): any[] {
   const transactions: any[] = [];
   
   try {
@@ -89,6 +93,7 @@ function extractTransactionsFromXml(content: string): any[] {
       const extractField = (fieldName: string): string | null => {
         // Try with closing tag first
         const closingTagRegex = new RegExp(`<${fieldName}>(.*?)<\\/${fieldName}>`, 's');
+        
         const closingMatch = closingTagRegex.exec(transactionBlock);
         
         if (closingMatch) {
@@ -118,90 +123,47 @@ function extractTransactionsFromXml(content: string): any[] {
   return transactions;
 }
 
-// Extract transactions from SGML format OFX (no closing tags)
-function extractTransactionsFromSgml(content: string): any[] {
-  const transactions: any[] = [];
-  const regex = /<STMTTRN>([\s\S]*?)(?=<STMTTRN>|<\/BANKTRANLIST>|$)/g;
-  
-  let match;
-  while ((match = regex.exec(content)) !== null) {
-    const transactionBlock = match[1];
-    const transaction: any = {};
-    
-    // Extract transaction details
-    const typeMatch = /<TRNTYPE>(.*?)(?=\n|<|$)/m.exec(transactionBlock);
-    const dateMatch = /<DTPOSTED>(.*?)(?=\n|<|$)/m.exec(transactionBlock);
-    const amountMatch = /<TRNAMT>(.*?)(?=\n|<|$)/m.exec(transactionBlock);
-    const idMatch = /<FITID>(.*?)(?=\n|<|$)/m.exec(transactionBlock);
-    const nameMatch = /<NAME>(.*?)(?=\n|<|$)/m.exec(transactionBlock);
-    
-    if (typeMatch) transaction.type = typeMatch[1].trim();
-    if (dateMatch) transaction.date = dateMatch[1].trim();
-    if (amountMatch) transaction.amount = parseFloat(amountMatch[1].trim());
-    if (idMatch) transaction.id = idMatch[1].trim();
-    if (nameMatch) transaction.name = nameMatch[1].trim();
-    
-    transactions.push(transaction);
-  }
-  
-  return transactions;
-}
-
-// Function to extract transactions from OFX content
-function extractTransactions(content: string): any[] {
-  // Determine which format we're dealing with
-  if (isXmlFormat(content)) {
-    return extractTransactionsFromXml(content);
-  } else {
-    return extractTransactionsFromSgml(content);
-  }
-}
-
 // Function to truncate NAME fields in OFX content
-function truncateNameFields(content: string): { 
+function truncateNameFields(content: string): {
   processedContent: string;
   truncatedNames: { original: string; truncated: string }[];
 } {
+  console.log("=== Starting NAME field truncation ===");
+  
   const truncatedNames: { original: string; truncated: string }[] = [];
   let modifiedContent = content;
+  const hasClosingTags = hasNameClosingTags(content);
   
-  // Handle XML format with closing tags
-  if (isXmlFormat(content)) {
-    const nameRegex = /<NAME>(.*?)<\/NAME>/g;
-    let match;
+  // Define a helper function to truncate a name value
+  const performTruncation = (nameValue: string, maxLength: number = 32): string => {
+    // // Log the exact character count
+    // console.log(`Checking name: "${nameValue}" (length: ${nameValue.length})`);
     
-    while ((match = nameRegex.exec(content)) !== null) {
-      const fullMatch = match[0];
-      const nameValue = match[1].trim();
-      
-      if (nameValue.length > 33) {
-        const truncatedName = nameValue.substring(0, 33);
-        const newNameTag = `<NAME>${truncatedName}</NAME>`;
-        
-        // Replace in the modified content
-        modifiedContent = modifiedContent.replace(fullMatch, newNameTag);
-        
-        truncatedNames.push({
-          original: nameValue,
-          truncated: truncatedName
-        });
-      }
+    if (nameValue.length > maxLength) {
+      const truncatedName = nameValue.substring(0, maxLength);
+      console.log(`Truncating "${nameValue}" (length: ${nameValue.length})`);
+      return truncatedName;
     }
-  } 
-  // Handle SGML format without closing tags
-  else {
-    const nameRegex = /<NAME>(.*?)(?=\n|<|$)/gm;
+    return nameValue;
+  };
+  
+  // Handle format with closing tags
+  if (hasClosingTags) {
+    console.log("Processing using closing tag format rules");
+    const nameTagRegex = /(<NAME>\s*)(.*?)(\s*<\/NAME>)/gi;
     let match;
     
-    while ((match = nameRegex.exec(content)) !== null) {
+    while ((match = nameTagRegex.exec(content)) !== null) {
       const fullMatch = match[0];
-      const nameValue = match[1].trim();
+      const prefix = match[1];
+      const nameValue = match[2].trim();
+      const suffix = match[3];
       
-      if (nameValue.length > 33) {
-        const truncatedName = nameValue.substring(0, 33);
-        const newNameTag = `<NAME>${truncatedName}`;
-        
-        // Replace in the modified content
+      const truncatedName = performTruncation(nameValue, 32);
+      
+      if (truncatedName !== nameValue) {
+        const newNameTag = `${prefix}${truncatedName}${suffix}`;
+        // Use direct string replacement
         modifiedContent = modifiedContent.replace(fullMatch, newNameTag);
         
         truncatedNames.push({
@@ -211,13 +173,58 @@ function truncateNameFields(content: string): {
       }
     }
   }
+  // Handle format without closing tags
+  else {
+    console.log("Processing using non-closing tag format rules");
+    const nameTagRegex = /(<NAME>\s*)(.*?)(?=\n|<|$)/gmi;
+    let match;
+    
+    while ((match = nameTagRegex.exec(content)) !== null) {
+      const fullMatch = match[0];
+      const prefix = match[1];
+      const nameValue = match[2].trim();
+      
+      const truncatedName = performTruncation(nameValue, 32);
+      
+      if (truncatedName !== nameValue) {
+        const newNameTag = `${prefix}${truncatedName}`;
+        
+        // Use direct string replacement
+        modifiedContent = modifiedContent.replace(fullMatch, newNameTag);
+        
+        truncatedNames.push({
+          original: nameValue,
+          truncated: truncatedName
+        });
+      }
+    }
+  }
+  
+  console.log(`Truncation complete. Modified ${truncatedNames.length} NAME fields.`);
+  
+  // Add a verification step
+  console.log("Verifying truncation results...");
+  const verifyRegex = hasClosingTags ? 
+    /<NAME>(.*?)<\/NAME>/gi : 
+    /<NAME>(.*?)(?=\n|<|$)/gmi;
+  
+  let longNamesAfter = 0;
+  let match;
+  while ((match = verifyRegex.exec(modifiedContent)) !== null) {
+    const nameValue = match[1].trim();
+    if (nameValue.length > 32) {
+      longNamesAfter++;
+      console.log(`WARNING: Found name still over 32 chars after truncation: "${nameValue}" (${nameValue.length})`);
+    }
+  }
+  
+  console.log(`Verification complete. Found ${longNamesAfter} names still over 32 characters.`);
   
   return {
     processedContent: modifiedContent,
     truncatedNames
   };
 }
-
 
 // Add a function to remove specific tags from OFX content
 function removeUnwantedTags(content: string): {
@@ -231,10 +238,11 @@ function removeUnwantedTags(content: string): {
   const removedTags: { tagName: string; count: number }[] = [];
   let modifiedContent = content;
   
-  // Process for XML format (with closing tags)
-  if (isXmlFormat(content)) {
+  // Process for closing tag format
+  if (hasNameClosingTags(content)) {
     for (const tag of tagsToRemove) {
       const regex = new RegExp(`<${tag}>.*?<\/${tag}>\\s*`, 'g');
+      
       const matches = content.match(regex);
       
       if (matches && matches.length > 0) {
@@ -247,7 +255,7 @@ function removeUnwantedTags(content: string): {
       }
     }
   } 
-  // Process for SGML format (without closing tags)
+  // Process for non-closing tag format
   else {
     for (const tag of tagsToRemove) {
       const regex = new RegExp(`<${tag}>.*?(?=\\n|<)\\s*`, 'g');
@@ -272,13 +280,19 @@ function removeUnwantedTags(content: string): {
 
 
 // Process OFX file
-export async function processOfxFile(fileBuffer: Buffer): Promise<{ 
+export async function processOfxFile(fileBuffer: Buffer): Promise<{
   processedContent: string;
   transactions: any[];
   processingStats: ProcessingStats;
 }> {
+
+  console.log("=== Starting OFX processing ===");
+  console.log("File size:", fileBuffer.length, "bytes");
+  
   // Convert buffer to string
   let content = fileBuffer.toString('utf-8');
+  console.log("File encoding detected as UTF-8");
+  
   const processingStats: ProcessingStats = {
     replacements: [],
     truncatedNames: [],
@@ -286,51 +300,59 @@ export async function processOfxFile(fileBuffer: Buffer): Promise<{
   };
   
   // Apply replacements
+  console.log("Applying standard replacements...");
   for (const [old, newVal] of Object.entries(replacements)) {
     const regex = new RegExp(old.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
     const matches = content.match(regex);
-    
     if (matches && matches.length > 0) {
+      console.log(`Found ${matches.length} matches for pattern: ${old.substring(0, 30)}...`);
       processingStats.replacements.push({
         pattern: old,
         count: matches.length,
         examples: matches.slice(0, 3) // Keep up to 3 examples
       });
-      
       content = content.replace(regex, newVal);
     }
   }
   
   // Apply regex patterns
+  console.log("Applying regex pattern replacements...");
   for (const [pattern, replacement] of regexPatterns) {
     const matches = content.match(pattern);
-    
     if (matches && matches.length > 0) {
+      console.log(`Found ${matches.length} matches for pattern: ${pattern.toString()}`);
       processingStats.replacements.push({
         pattern: pattern.toString(),
         count: matches.length,
         examples: matches.slice(0, 3) // Keep up to 3 examples
       });
-      
       content = content.replace(pattern, replacement);
     }
   }
   
   // Truncate NAME fields
+  console.log("Starting NAME field truncation...");
   const nameResult = truncateNameFields(content);
   content = nameResult.processedContent;
-  
   if (nameResult.truncatedNames.length > 0) {
+    console.log(`Truncated ${nameResult.truncatedNames.length} NAME fields`);
     processingStats.truncatedNames = nameResult.truncatedNames;
+  } else {
+    console.log("No NAME fields required truncation");
   }
   
   // Remove unwanted tags (SIC and CORRECTFITID)
+  console.log("Removing unwanted tags...");
   const tagResult = removeUnwantedTags(content);
   content = tagResult.processedContent;
   processingStats.removedTags = tagResult.removedTags;
   
   // Extract transactions
+  console.log("Extracting transactions...");
   const transactions = extractTransactions(content);
+  console.log(`Extracted ${transactions.length} transactions`);
+  
+  console.log("=== OFX processing complete ===");
   
   return {
     processedContent: content,
