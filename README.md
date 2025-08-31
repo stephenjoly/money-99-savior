@@ -1,4 +1,4 @@
-# Money 99 Savior: Correct common defects in QFX/QBO/OFX files for use with Microsoft Money 1999
+# Money 99 Savior – Correct common defects in QFX/QBO/OFX files for use with Microsoft Money 1999
 
 A free and open-source application for viewing financial transactions and cleaning OFX files specifically designed for compatibility with Microsoft Money 99 and other legacy financial software.
 
