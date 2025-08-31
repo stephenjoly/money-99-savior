@@ -45,7 +45,7 @@ Contributions are welcome! Feel free to submit issues or pull requests if you ha
 
 ## Support
 
-If you encounter any issues or have questions about using Money 99 Savior, please email me directly at stephenjoly99@gmail.com
+If you encounter any issues or have questions about using Money 99 Savior, please feel free to open an issue or a discussion thread.
 
 ## License
 
