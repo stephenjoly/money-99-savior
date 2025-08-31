@@ -2,6 +2,8 @@
 
 A free and open-source application for viewing financial transactions and cleaning OFX files specifically designed for compatibility with Microsoft Money 99 and other legacy financial software.
 
+Check it out at https://money-99-savior.stephenjoly.net
+
 ## Overview
 
 Money 99 Savior processes OFX (Open Financial Exchange) files to ensure compatibility with Microsoft Money 99 and similar financial software that have strict formatting requirements. It has been thoroughly tested and confirmed working with Microsoft Money 99.
