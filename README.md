@@ -26,6 +26,7 @@ Money 99 Savior handles several common issues with OFX files that prevent them f
 - Removes problematic tags like `<SIC>` and `<CORRECTFITID>`
 - Standardizes common merchant names for better readability
 - Handles both XML-style OFX (with closing tags) and SGML-style OFX (without closing tags)
+- Replaces certain common patterns that occur when merchants with multiple locations add unit store numbers to credit card network names (e.g., replaces "Costco 2341238" with "Costco")
 
 ## Usage
 
@@ -59,4 +60,4 @@ Thanks to all the users who have tested Money 99 Savior and provided feedback to
 
 ---
 
-**Note**: Money 99 Savior does not store your financial data. All processing happens locally in your browser, keeping your financial information private and secure.
+**Note**: Money 99 Savior does not store your financial data.
