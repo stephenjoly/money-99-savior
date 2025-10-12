@@ -10,10 +10,16 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      app_version: ${{ steps.build_version.outputs.app_version }}
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+
+      - name: Create release version string
+        id: build_version
+        run: echo "app_version=v$(date -u +%Y.%m.%d.%H.%M)" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v2
@@ -37,3 +43,51 @@ jobs:
           build-args: |
             BUILDKIT_INLINE_CACHE=1
             NODE_ENV=production
+            APP_VERSION=${{ steps.build_version.outputs.app_version }}
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    env:
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+      COMPOSE_SERVICE: ${{ vars.COMPOSE_SERVICE }}
+      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      APP_VERSION: ${{ needs.build.outputs.app_version }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Ensure deployment variables are set
+        run: |
+          [ -n "${DEPLOY_PATH}" ] || { echo "DEPLOY_PATH is not configured" >&2; exit 1; }
+        shell: bash
+
+      - name: Update remote stack
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script_stop: true
+          envs: GHCR_USERNAME,GHCR_TOKEN,DEPLOY_PATH,COMPOSE_SERVICE,APP_VERSION
+          script: |
+            if [ -z "$DEPLOY_PATH" ]; then
+              echo "DEPLOY_PATH is not configured" >&2
+              exit 1
+            fi
+            cd "$DEPLOY_PATH"
+            if [ -n "$GHCR_USERNAME" ] && [ -n "$GHCR_TOKEN" ]; then
+              echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
+            fi
+            if [ -n "$COMPOSE_SERVICE" ]; then
+              docker compose pull "$COMPOSE_SERVICE"
+              docker compose up -d "$COMPOSE_SERVICE"
+            else
+              docker compose pull
+              docker compose up -d
+            fi
+            docker image prune -f
+            echo "Deployed ${APP_VERSION:-unknown version}"

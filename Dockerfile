@@ -1,6 +1,9 @@
 # Dockerfile
 FROM node:22-alpine as build
 
+ARG APP_VERSION="vDev"
+ENV VITE_APP_VERSION=${APP_VERSION}
+
 WORKDIR /build
 
 # Copy package files
@@ -24,6 +27,9 @@ RUN cd server && npm run build
 
 # Production stage
 FROM node:22-alpine
+
+ARG APP_VERSION="vDev"
+ENV APP_VERSION=${APP_VERSION}
 
 WORKDIR /app
 

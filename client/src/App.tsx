@@ -18,6 +18,8 @@ const App: React.FC = () => {
     setProcessedFile(null);
   };
 
+  const appVersion = import.meta.env.VITE_APP_VERSION ?? "vDev";
+
   return (
     <div className="min-h-screen bg-gray-100 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-4xl mx-auto">
@@ -65,6 +67,9 @@ const App: React.FC = () => {
             <TransactionList transactions={processedFile.transactions} />
           </>
         )}
+        <div className="mt-12 text-center text-xs text-gray-400">
+          {appVersion}
+        </div>
       </div>
     </div>
   );
