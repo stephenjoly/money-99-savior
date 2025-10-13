@@ -75,7 +75,7 @@ jobs:
             exit 1
           fi
 
-          payload=$(python -c "import json, os; print(json.dumps({'service': os.environ.get('COMPOSE_SERVICE', '').strip(), 'version': os.environ.get('APP_VERSION', '').strip()}, separators=(',', ':')))")
+          payload="{\"service\":\"${COMPOSE_SERVICE}\",\"version\":\"${APP_VERSION}\"}"
 
           curl -sSf -X POST "${N8N_DEPLOY_URL}" \
             -H "X-Deploy-Token: ${N8N_DEPLOY_TOKEN}" \
