@@ -50,44 +50,46 @@ jobs:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
     env:
-      DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
       COMPOSE_SERVICE: ${{ vars.COMPOSE_SERVICE }}
-      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
-      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
       APP_VERSION: ${{ needs.build.outputs.app_version }}
+      N8N_DEPLOY_URL: ${{ secrets.N8N_DEPLOY_URL }}
+      N8N_DEPLOY_TOKEN: ${{ secrets.N8N_DEPLOY_TOKEN }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Ensure deployment variables are set
+      - name: Trigger n8n deploy webhook
         run: |
-          [ -n "${DEPLOY_PATH}" ] || { echo "DEPLOY_PATH is not configured" >&2; exit 1; }
-        shell: bash
+          set -euo pipefail
+          if [ -z "${N8N_DEPLOY_URL}" ]; then
+            echo "N8N_DEPLOY_URL secret is not configured" >&2
+            exit 1
+          fi
+          if [ -z "${N8N_DEPLOY_TOKEN}" ]; then
+            echo "N8N_DEPLOY_TOKEN secret is not configured" >&2
+            exit 1
+          fi
+          if [ -z "${COMPOSE_SERVICE}" ]; then
+            echo "COMPOSE_SERVICE variable is not configured" >&2
+            exit 1
+          fi
 
-      - name: Update remote stack
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
-          script_stop: true
-          envs: GHCR_USERNAME,GHCR_TOKEN,DEPLOY_PATH,COMPOSE_SERVICE,APP_VERSION
-          script: |
-            if [ -z "$DEPLOY_PATH" ]; then
-              echo "DEPLOY_PATH is not configured" >&2
-              exit 1
-            fi
-            cd "$DEPLOY_PATH"
-            if [ -n "$GHCR_USERNAME" ] && [ -n "$GHCR_TOKEN" ]; then
-              echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
-            fi
-            if [ -n "$COMPOSE_SERVICE" ]; then
-              docker compose pull "$COMPOSE_SERVICE"
-              docker compose up -d "$COMPOSE_SERVICE"
-            else
-              docker compose pull
-              docker compose up -d
-            fi
-            docker image prune -f
-            echo "Deployed ${APP_VERSION:-unknown version}"
+          payload=$(python - <<'PY'
+import json
+import os
+
+service = os.environ.get("COMPOSE_SERVICE", "").strip()
+version = os.environ.get("APP_VERSION", "").strip()
+
+print(json.dumps({
+    "service": service,
+    "version": version,
+}, separators=(",", ":")))
+PY
+)
+
+          curl -sSf -X POST "${N8N_DEPLOY_URL}" \
+            -H "X-Deploy-Token: ${N8N_DEPLOY_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data "${payload}"
