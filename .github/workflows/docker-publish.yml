@@ -36,7 +36,9 @@ jobs:
         with:
           context: .
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/money-99-savior:latest
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/money-99-savior:latest
+            ghcr.io/${{ github.repository_owner }}/money-99-savior:${{ steps.build_version.outputs.app_version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           # Add this to see more build output
