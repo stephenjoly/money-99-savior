@@ -10,10 +10,16 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      app_version: ${{ steps.build_version.outputs.app_version }}
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+
+      - name: Create release version string
+        id: build_version
+        run: echo "app_version=v$(date -u +%Y.%m.%d.%H.%M)" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v2
@@ -37,3 +43,41 @@ jobs:
           build-args: |
             BUILDKIT_INLINE_CACHE=1
             NODE_ENV=production
+            APP_VERSION=${{ steps.build_version.outputs.app_version }}
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    env:
+      COMPOSE_SERVICE: ${{ vars.COMPOSE_SERVICE }}
+      APP_VERSION: ${{ needs.build.outputs.app_version }}
+      N8N_DEPLOY_URL: ${{ secrets.N8N_DEPLOY_URL }}
+      N8N_DEPLOY_TOKEN: ${{ secrets.N8N_DEPLOY_TOKEN }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Trigger n8n deploy webhook
+        run: |
+          set -euo pipefail
+          if [ -z "${N8N_DEPLOY_URL}" ]; then
+            echo "N8N_DEPLOY_URL secret is not configured" >&2
+            exit 1
+          fi
+          if [ -z "${N8N_DEPLOY_TOKEN}" ]; then
+            echo "N8N_DEPLOY_TOKEN secret is not configured" >&2
+            exit 1
+          fi
+          if [ -z "${COMPOSE_SERVICE}" ]; then
+            echo "COMPOSE_SERVICE variable is not configured" >&2
+            exit 1
+          fi
+
+          payload=$(python -c "import json, os; print(json.dumps({'service': os.environ.get('COMPOSE_SERVICE', '').strip(), 'version': os.environ.get('APP_VERSION', '').strip()}, separators=(',', ':')))")
+
+          curl -sSf -X POST "${N8N_DEPLOY_URL}" \
+            -H "X-Deploy-Token: ${N8N_DEPLOY_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data "${payload}"
