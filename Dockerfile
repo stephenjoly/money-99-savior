@@ -30,6 +30,8 @@ FROM node:22-alpine
 
 ARG APP_VERSION="vDev"
 ENV APP_VERSION=${APP_VERSION}
+ENV NODE_ENV=production
+ENV PORT=5000
 
 WORKDIR /app
 
