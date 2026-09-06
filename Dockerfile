@@ -1,5 +1,5 @@
 # Dockerfile
-FROM node:22-alpine as build
+FROM node:22-alpine AS build
 
 ARG APP_VERSION="vDev"
 ENV VITE_APP_VERSION=${APP_VERSION}
@@ -12,9 +12,9 @@ COPY client/package*.json ./client/
 COPY server/package*.json ./server/
 
 # Install dependencies
-RUN npm install
-RUN cd client && npm install
-RUN cd server && npm install
+RUN npm ci
+RUN cd client && npm ci
+RUN cd server && npm ci
 
 # Copy source code
 COPY . .
@@ -35,7 +35,7 @@ WORKDIR /app
 
 # Copy package files and install production dependencies
 COPY server/package*.json ./
-RUN npm install --only=production
+RUN npm ci --omit=dev
 
 # Copy built backend
 COPY --from=build /build/server/dist ./dist
@@ -43,13 +43,8 @@ COPY --from=build /build/server/dist ./dist
 # Create a directory for client files and copy the built frontend
 COPY --from=build /build/client/dist ./client/dist
 
-# Add debugging to see what's in the container
-RUN echo "Listing /app directory:"
-RUN ls -la /app
-RUN echo "Listing /app/client directory:"
-RUN ls -la /app/client
-RUN echo "Listing /app/client/dist directory:"
-RUN ls -la /app/client/dist
+HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:5000/health || exit 1
 
 # Expose the port the app runs on
 EXPOSE 5000

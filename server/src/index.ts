@@ -13,11 +13,20 @@ const isDevelopment = process.env.NODE_ENV !== 'production';
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+app.get('/health', (_req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
   
 // Configure multer for file uploads
 const storage = multer.memoryStorage();
 const upload = multer({
   storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024,
+    files: 1,
+    fields: 0,
+  },
   fileFilter: (req, file, cb) => {
     if (validateFileType(file.originalname)) {
       cb(null, true);
@@ -101,7 +110,7 @@ if (!isDevelopment) {
   if (clientBuildPath) {
     app.use(express.static(clientBuildPath));
     // Handle React routing, return all requests to React app
-    app.get('*', (req, res) => {
+    app.use((_req, res) => {
       const indexPath = path.join(clientBuildPath, 'index.html');
       if (fs.existsSync(indexPath)) {
         res.sendFile(indexPath);
@@ -112,7 +121,7 @@ if (!isDevelopment) {
   } else {
     console.error('Could not find client build directory!');
     console.log('Tried paths:', possiblePaths);
-    app.get('*', (req, res) => {
+    app.use((_req, res) => {
       res.status(404).send('Client build not found. Please check your Docker configuration.');
     });
   }

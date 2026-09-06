@@ -3,7 +3,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
-import { DOMParser } from 'xmldom'; 
+import { DOMParser } from '@xmldom/xmldom';
 
 const readFileAsync = promisify(fs.readFile);
 const writeFileAsync = promisify(fs.writeFile);
