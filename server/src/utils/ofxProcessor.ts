@@ -2,7 +2,9 @@
 
 import * as path from 'path';
 
-// Default replacements from the Python code
+// Plain-text substitutions applied to the whole file before anything else.
+// Keys that start with "<" are structural (headers, account types); the rest can
+// appear inside a transaction NAME and therefore show up as a per-transaction edit.
 const replacements: Record<string, string> = {
   '<ACCTTYPE>CREDITLINE': '',
   '&': '',
@@ -11,6 +13,9 @@ const replacements: Record<string, string> = {
   '<?xml version="1.0" standalone="no"?><?OFX OFXHEADER="200" VERSION="202" SECURITY="NONE" OLDFILEUID="NONE" NEWFILEUID="NONE"?>':
     "OFXHEADER:100\nDATA:OFXSGML\nVERSION:102\nSECURITY:NONE\nENCODING:USASCII\nCHARSET:1252\nCOMPRESSION:NONE\nOLDFILEUID:NONE\nNEWFILEUID:NONE",
 };
+
+// Money 99 mangles any NAME longer than this.
+export const MAX_NAME_LENGTH = 32;
 
 // Regex patterns for transaction descriptions
 const regexPatterns: [RegExp, string][] = [
@@ -24,6 +29,66 @@ const regexPatterns: [RegExp, string][] = [
   [/AMAZON[A-Z0-9]+ AMAZONCA/g, 'AMAZON']
 ];
 
+// The merchant rename rules, in a shape the client can render on the rules page.
+export interface MerchantRule {
+  pattern: string;
+  replacement: string;
+}
+
+export function getMerchantRules(): MerchantRule[] {
+  return regexPatterns.map(([pattern, replacement]) => ({
+    pattern: pattern.source,
+    replacement
+  }));
+}
+
+// A single change made to one transaction's name, in the order it was applied.
+export interface TransactionEdit {
+  kind: 'renamed' | 'shortened';
+  from: string;
+  to: string;
+  rule?: string;
+}
+
+// Replay the name pipeline against a single NAME value so each change can be
+// attributed to the transaction it happened to. The order here must match the
+// order processOfxFile applies them in: plain substitutions, merchant rules,
+// then truncation.
+export function computeNameEdits(originalName: string): {
+  edits: TransactionEdit[];
+  finalName: string;
+} {
+  const edits: TransactionEdit[] = [];
+  let name = originalName;
+
+  for (const [needle, replacement] of Object.entries(replacements)) {
+    if (needle.startsWith('<')) continue; // structural, never part of a NAME
+    if (!name.includes(needle)) continue;
+    const next = name.split(needle).join(replacement);
+    if (next !== name) {
+      edits.push({ kind: 'renamed', from: name, to: next, rule: needle });
+      name = next;
+    }
+  }
+
+  for (const [pattern, replacement] of regexPatterns) {
+    // These are /g regexes; use replace rather than test so lastIndex is never
+    // carried between calls.
+    const next = name.replace(pattern, replacement);
+    if (next !== name) {
+      edits.push({ kind: 'renamed', from: name, to: next, rule: pattern.source });
+      name = next;
+    }
+  }
+
+  if (name.length > MAX_NAME_LENGTH) {
+    const truncated = name.substring(0, MAX_NAME_LENGTH);
+    edits.push({ kind: 'shortened', from: name, to: truncated });
+    name = truncated;
+  }
+
+  return { edits, finalName: name };
+}
 
 // Update the ProcessingStats interface to include removed tags
 interface ProcessingStats {
@@ -254,15 +319,31 @@ function removeUnwantedTags(content: string): {
 }
 
 
+export interface ProcessedTransaction {
+  type: string;
+  date: string;
+  amount: number;
+  id: string;
+  name: string;
+  /** Present only when this transaction's name was changed. */
+  edits?: TransactionEdit[];
+}
+
 // Process OFX file
 export async function processOfxFile(fileBuffer: Buffer): Promise<{
   processedContent: string;
-  transactions: any[];
+  transactions: ProcessedTransaction[];
   processingStats: ProcessingStats;
 }> {
 
   // Convert buffer to string
-  let content = fileBuffer.toString('utf-8');
+  const originalContent = fileBuffer.toString('utf-8');
+  let content = originalContent;
+
+  // Read the transactions before anything is rewritten so each edit can be tied
+  // back to the transaction it happened to. Processing never adds or removes a
+  // STMTTRN block, so the two extractions line up by index.
+  const originalTransactions = extractTransactions(originalContent);
   
   const processingStats: ProcessingStats = {
     replacements: [],
@@ -310,8 +391,31 @@ export async function processOfxFile(fileBuffer: Buffer): Promise<{
   processingStats.removedTags = tagResult.removedTags;
   
   // Extract transactions
-  const transactions = extractTransactions(content);
-  
+  const transactions: ProcessedTransaction[] = extractTransactions(content);
+
+  // Attach the per-transaction edit trail. If the two extractions disagree on
+  // length something upstream changed the block count, so fall back to matching
+  // on FITID and leave anything unmatched un-annotated rather than mislabel it.
+  const alignedByIndex = originalTransactions.length === transactions.length;
+  const originalById = new Map(
+    originalTransactions.filter((t) => t.id).map((t) => [t.id, t])
+  );
+
+  transactions.forEach((transaction, index) => {
+    const original = alignedByIndex
+      ? originalTransactions[index]
+      : originalById.get(transaction.id);
+
+    if (!original || typeof original.name !== 'string') {
+      return;
+    }
+
+    const { edits } = computeNameEdits(original.name);
+    if (edits.length > 0) {
+      transaction.edits = edits;
+    }
+  });
+
   return {
     processedContent: content,
     transactions,

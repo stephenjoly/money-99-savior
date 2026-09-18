@@ -1,1 +1,39 @@
 @import "tailwindcss";
+
+/* The sweep on the in-flight progress bar. */
+.sweep {
+  position: relative;
+  overflow: hidden;
+}
+
+.sweep::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--color-gray-900),
+    transparent
+  );
+  animation: sweep 1.05s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+@keyframes sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(350%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sweep::after {
+    animation: none;
+    width: 100%;
+    background: var(--color-gray-900);
+    opacity: 0.25;
+  }
+}

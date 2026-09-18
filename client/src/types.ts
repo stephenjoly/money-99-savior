@@ -1,10 +1,21 @@
 // client/src/types.ts
+
+/** A single change made to one transaction's name, in the order it was applied. */
+export interface TransactionEdit {
+  kind: "renamed" | "shortened";
+  from: string;
+  to: string;
+  rule?: string;
+}
+
 export interface Transaction {
   type: string;
   date: string;
   amount: number;
   id: string;
   name: string;
+  /** Present only when this transaction's name was changed. */
+  edits?: TransactionEdit[];
 }
 
 export interface ProcessingStats {
@@ -29,4 +40,15 @@ export interface ProcessedFile {
   processedContent: string;
   processingStats: ProcessingStats;
   isXmlFormat: boolean;
+}
+
+export interface MerchantRule {
+  pattern: string;
+  replacement: string;
+}
+
+export interface RulesResponse {
+  merchantRules: MerchantRule[];
+  maxNameLength: number;
+  removedTags: string[];
 }

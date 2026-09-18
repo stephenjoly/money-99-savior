@@ -4,7 +4,7 @@ import cors from 'cors';
 import path from 'path';
 import multer from 'multer';
 import fs from 'fs';
-import { processOfxFile, validateFileType } from './utils/ofxProcessor';
+import { processOfxFile, validateFileType, getMerchantRules, MAX_NAME_LENGTH } from './utils/ofxProcessor';
   
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -16,6 +16,16 @@ app.use(express.json());
 
 app.get('/health', (_req, res) => {
   res.status(200).json({ status: 'ok' });
+});
+
+// The correction rules page reads these so it can never drift from the rules
+// the processor actually applies.
+app.get('/api/rules', (_req, res) => {
+  res.status(200).json({
+    merchantRules: getMerchantRules(),
+    maxNameLength: MAX_NAME_LENGTH,
+    removedTags: ['SIC', 'CORRECTFITID'],
+  });
 });
   
 // Configure multer for file uploads
