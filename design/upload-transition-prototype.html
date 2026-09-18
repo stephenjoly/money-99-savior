@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Upload → Receipt transition prototype</title>
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  body { font-family: Inter, ui-sans-serif, system-ui, sans-serif; background:#f6f7f9; color:#16181d; -webkit-font-smoothing:antialiased; }
+  .mono { font-family:"JetBrains Mono", ui-monospace, Menlo, monospace; }
+  .num { font-variant-numeric: tabular-nums; }
+  .hair { border-color:#e5e7eb; }
+  [hidden] { display:none !important; }
+
+  /* ---------- transition engine ----------
+     Every variant is the same 3-phase state machine:
+       idle -> working (request in flight) -> result
+     Only the CSS below changes between variants. */
+
+  #stage { position:relative; }
+  .layer { transition-property: transform, opacity, filter; will-change: transform, opacity; }
+
+  /* stack the two layers only while a transition is running,
+     so neither one reserves height afterwards */
+  .crossing #uploadLayer { position:absolute; inset:0 0 auto 0; pointer-events:none; }
+
+  /* ===== V1 · Slide & lift (what you described) ===== */
+  [data-variant="v1"] #uploadLayer.is-out { transform: translateX(-46%) scale(.97); opacity:0; }
+  [data-variant="v1"] #resultLayer.is-in  { transform: translateY(14px) scale(.965); opacity:0; }
+
+  /* ===== V2 · Handoff — uploader collapses into the verdict bar ===== */
+  [data-variant="v2"] #uploadLayer.is-out { transform: translateY(26px) scale(.90); opacity:0; filter: blur(3px); }
+  [data-variant="v2"] #resultLayer.is-in  { transform: scale(.985); opacity:0; }
+  [data-variant="v2"] #verdictCard.is-in  { transform: scaleY(.55) translateY(-10px); opacity:0; transform-origin: top center; }
+
+  /* ===== V3 · Recede & rise — uploader falls back, result climbs over it ===== */
+  [data-variant="v3"] #uploadLayer.is-out { transform: scale(.88); opacity:0; filter: blur(6px); }
+  [data-variant="v3"] #resultLayer.is-in  { transform: translateY(52px); opacity:0; }
+
+  /* staggered rows — shared by all variants */
+  .row-anim { transition-property: transform, opacity; }
+  .row-anim.is-in { transform: translateY(10px); opacity:0; }
+
+  /* the in-flight beat */
+  #working { transition: opacity .18s ease; }
+  .bar { position:relative; overflow:hidden; background:#e9ebef; }
+  .bar::after {
+    content:""; position:absolute; inset:0; width:40%;
+    background: linear-gradient(90deg, transparent, #16181d, transparent);
+    animation: sweep 1.05s cubic-bezier(.45,0,.55,1) infinite;
+  }
+  @keyframes sweep { from { transform: translateX(-100%);} to { transform: translateX(350%);} }
+
+  @media (prefers-reduced-motion: reduce) {
+    .bar::after { animation: none; background:#16181d; width:100%; opacity:.25; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ================= prototype controls (not product) ================= -->
+<div class="sticky top-0 z-50 bg-[#16181d] text-white">
+  <div class="max-w-5xl mx-auto px-5 py-2.5 flex flex-wrap items-center gap-x-5 gap-y-2 text-[13px]">
+    <span class="text-[11px] uppercase tracking-[0.14em] text-white/45">Motion</span>
+
+    <div class="flex gap-1 bg-white/10 p-1 rounded-lg">
+      <button data-v="v1" class="vbtn px-3 py-1.5 rounded-md font-medium text-white/75 hover:text-white">1 · Slide &amp; lift</button>
+      <button data-v="v2" class="vbtn px-3 py-1.5 rounded-md font-medium text-white/75 hover:text-white">2 · Handoff</button>
+      <button data-v="v3" class="vbtn px-3 py-1.5 rounded-md font-medium text-white/75 hover:text-white">3 · Recede &amp; rise</button>
+    </div>
+
+    <label class="flex items-center gap-2 text-white/60">
+      Speed
+      <select id="speed" class="bg-white/10 rounded-md px-2 py-1 text-white text-[12.5px] focus:outline-none">
+        <option value="1">1×</option>
+        <option value="0.5">0.5× (slow)</option>
+        <option value="0.25">0.25× (frame-by-frame)</option>
+      </select>
+    </label>
+
+    <label class="flex items-center gap-2 text-white/60 cursor-pointer">
+      <input id="reduced" type="checkbox" class="accent-white"> reduced-motion
+    </label>
+
+    <label class="flex items-center gap-2 text-white/60 cursor-pointer">
+      <input id="failMode" type="checkbox" class="accent-white"> make it fail
+    </label>
+
+    <button id="replay" class="ml-auto bg-white text-[#16181d] font-semibold px-3.5 py-1.5 rounded-md hover:bg-white/90">
+      ▸ Replay
+    </button>
+  </div>
+  <div class="max-w-5xl mx-auto px-5 pb-2.5 text-[12px] text-white/45" id="vnote"></div>
+</div>
+
+<!-- ============================ the app ============================= -->
+<header class="bg-white border-b hair">
+  <div class="max-w-5xl mx-auto px-5 h-14 flex items-center justify-between">
+    <div class="flex items-center gap-2.5">
+      <div class="w-6 h-6 rounded bg-[#16181d] text-white grid place-items-center text-[10px] font-bold">99</div>
+      <span class="font-semibold text-[15px] tracking-tight">Money 99 Savior</span>
+    </div>
+    <nav class="flex items-center gap-1 text-[13px]">
+      <a class="px-3 py-1.5 rounded-md font-medium bg-gray-100" href="#">Clean a file</a>
+      <a class="px-3 py-1.5 rounded-md text-gray-500 hover:text-gray-900" href="#">Correction rules</a>
+    </nav>
+  </div>
+</header>
+
+<main class="max-w-5xl mx-auto px-5 py-10">
+  <div id="stage">
+
+    <!-- ---------- LAYER 1: upload ---------- -->
+    <div id="uploadLayer" class="layer">
+      <div class="text-center mb-7">
+        <h1 class="text-[22px] font-semibold tracking-tight">Clean a statement for Money 99</h1>
+        <p class="mt-1.5 text-[14px] text-gray-500">Drop a .ofx, .qfx or .qbo file. It never leaves your browser.</p>
+      </div>
+
+      <button id="dropzone" class="w-full bg-white border-2 border-dashed hair rounded-2xl px-6 py-14 hover:border-gray-400 hover:bg-gray-50/60 transition-colors group">
+        <div class="w-11 h-11 rounded-xl bg-gray-100 border hair grid place-items-center mx-auto group-hover:bg-white transition-colors">
+          <svg class="text-gray-500" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21V9m0 0 4 4m-4-4-4 4M20 16.5A4.5 4.5 0 0 0 17.5 8h-1.2A7 7 0 1 0 4 14.9"/></svg>
+        </div>
+        <div class="mt-3.5 text-[14px] font-medium">Choose a file <span class="text-gray-400 font-normal">or drag it here</span></div>
+        <div class="mt-1 text-[12.5px] text-gray-400">OFX · QFX · QBO — up to 10 MB</div>
+      </button>
+
+      <div id="uploadError" hidden class="mt-4 flex items-start gap-2.5 bg-rose-50 border border-rose-200 rounded-lg px-4 py-3 text-[13px] text-rose-800">
+        <svg class="shrink-0 mt-0.5 text-rose-500" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 8v5m0 3.5h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+        <div><b class="font-semibold">Couldn't read that file.</b> It doesn't contain an <span class="mono">&lt;OFX&gt;</span> block — the bank may have exported CSV with an .ofx name.</div>
+      </div>
+    </div>
+
+    <!-- ---------- the in-flight beat ---------- -->
+    <div id="working" hidden class="py-3">
+      <div class="bg-white border hair rounded-xl px-5 py-4 flex items-center gap-4">
+        <div class="w-9 h-9 rounded-lg bg-gray-100 border hair grid place-items-center shrink-0">
+          <svg class="text-gray-400" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg>
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="mono text-[13px] truncate">statement-2026-08.qfx</div>
+          <div class="bar h-1 rounded-full mt-2"></div>
+        </div>
+        <span id="workingLabel" class="text-[12.5px] text-gray-400 shrink-0">Reading…</span>
+      </div>
+    </div>
+
+    <!-- ---------- LAYER 2: receipt (Option A) ---------- -->
+    <div id="resultLayer" class="layer" hidden>
+
+      <div id="verdictCard" class="layer bg-white border hair rounded-xl overflow-hidden">
+        <div class="px-5 py-4 flex flex-wrap items-center gap-4">
+          <div class="w-9 h-9 rounded-full bg-emerald-50 border border-emerald-200 grid place-items-center shrink-0">
+            <svg class="text-emerald-600" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="font-semibold text-[15px] leading-tight">Ready for Money 99</div>
+            <div class="text-[13px] text-gray-500 leading-tight mt-0.5 truncate">
+              <span class="mono">statement-2026-08.qfx</span>
+              <span class="text-gray-300 mx-1.5">·</span>SGML
+              <span class="text-gray-300 mx-1.5">·</span>42 transactions
+              <span class="text-gray-300 mx-1.5">·</span><span class="text-gray-900 font-medium">9 corrections</span>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="startOver" class="text-[13px] font-medium text-gray-600 hover:text-gray-900 px-3 py-2">Start over</button>
+            <button class="text-[13px] font-semibold bg-[#16181d] text-white px-4 py-2 rounded-lg hover:bg-black flex items-center gap-2">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16"/></svg>
+              Download .ofx
+            </button>
+          </div>
+        </div>
+        <div class="border-t hair bg-gray-50/70 px-5 py-3 text-[13px] text-gray-600 flex flex-wrap gap-x-5 gap-y-1">
+          <span><b class="text-gray-900 num">5</b> merchant names standardized</span>
+          <span><b class="text-gray-900 num">3</b> names shortened to 32 characters</span>
+          <span><b class="text-gray-900 num">18</b> incompatible tags stripped</span>
+          <span><b class="text-gray-900 num">1</b> file header rewritten</span>
+        </div>
+      </div>
+
+      <div class="mt-6 bg-white border hair rounded-xl overflow-hidden">
+        <div class="px-5 py-3 border-b hair flex items-center gap-3">
+          <h2 class="font-semibold text-[14px]">Transactions</h2>
+          <div class="ml-auto flex items-center gap-1 text-[12.5px] bg-gray-100 p-0.5 rounded-lg">
+            <button class="px-2.5 py-1 rounded-md bg-white shadow-sm font-medium">All 42</button>
+            <button class="px-2.5 py-1 rounded-md text-gray-500 hover:text-gray-900">Changed 8</button>
+          </div>
+        </div>
+
+        <table class="w-full text-[13.5px]">
+          <thead>
+            <tr class="text-[11px] uppercase tracking-wider text-gray-400 text-left">
+              <th class="font-medium px-5 py-2 w-24">Date</th>
+              <th class="font-medium px-3 py-2">Description</th>
+              <th class="font-medium px-3 py-2 w-28 text-right">Amount</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-100">
+            <tr class="row-anim">
+              <td class="px-5 py-2.5 text-gray-500 num">08/02</td>
+              <td class="px-3 py-2.5">TIM HORTONS #4821</td>
+              <td class="px-3 py-2.5 text-right num">−4.85</td>
+            </tr>
+            <tr class="row-anim bg-amber-50/40">
+              <td class="px-5 py-2.5 text-gray-500 num">08/03</td>
+              <td class="px-3 py-2.5">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="font-medium">AMAZON</span>
+                  <span class="text-[11px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-medium">renamed</span>
+                </div>
+                <div class="text-[12.5px] text-gray-400 mono line-through mt-0.5">AMZN MKTP CA*2K4L91NB3 WWWAMAZONC</div>
+              </td>
+              <td class="px-3 py-2.5 text-right num">−67.42</td>
+            </tr>
+            <tr class="row-anim">
+              <td class="px-5 py-2.5 text-gray-500 num">08/03</td>
+              <td class="px-3 py-2.5">SHELL C36284</td>
+              <td class="px-3 py-2.5 text-right num">−58.10</td>
+            </tr>
+            <tr class="row-anim bg-amber-50/40">
+              <td class="px-5 py-2.5 text-gray-500 num">08/05</td>
+              <td class="px-3 py-2.5">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="font-medium">COSTCO</span>
+                  <span class="text-[11px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-medium">renamed</span>
+                </div>
+                <div class="text-[12.5px] text-gray-400 mono line-through mt-0.5">COSTCO WHOLESALE W1263</div>
+              </td>
+              <td class="px-3 py-2.5 text-right num">−241.88</td>
+            </tr>
+            <tr class="row-anim bg-amber-50/40">
+              <td class="px-5 py-2.5 text-gray-500 num">08/07</td>
+              <td class="px-3 py-2.5">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="font-medium">HYDRO ONE PREAUTHORIZED PAYM</span>
+                  <span class="text-[11px] px-1.5 py-0.5 rounded bg-orange-100 text-orange-800 font-medium">shortened</span>
+                </div>
+                <div class="text-[12.5px] text-gray-400 mono mt-0.5">HYDRO ONE PREAUTHORIZED PAYM<span class="bg-orange-100 text-orange-700 line-through">ENT AUG</span><span class="text-gray-400 ml-1">— 39 → 32</span></div>
+              </td>
+              <td class="px-3 py-2.5 text-right num">−143.00</td>
+            </tr>
+            <tr class="row-anim">
+              <td class="px-5 py-2.5 text-gray-500 num">08/09</td>
+              <td class="px-3 py-2.5">PAYROLL DEPOSIT</td>
+              <td class="px-3 py-2.5 text-right num text-emerald-700 font-medium">+2,410.00</td>
+            </tr>
+            <tr class="row-anim bg-amber-50/40">
+              <td class="px-5 py-2.5 text-gray-500 num">08/11</td>
+              <td class="px-3 py-2.5">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="font-medium">PRESTO</span>
+                  <span class="text-[11px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-medium">renamed</span>
+                </div>
+                <div class="text-[12.5px] text-gray-400 mono line-through mt-0.5">PRESTO FARE9920138 TORONTO</div>
+              </td>
+              <td class="px-3 py-2.5 text-right num">−3.35</td>
+            </tr>
+            <tr class="row-anim">
+              <td class="px-5 py-2.5 text-gray-500 num">08/12</td>
+              <td class="px-3 py-2.5">NETFLIX.COM</td>
+              <td class="px-3 py-2.5 text-right num">−20.99</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="px-5 py-3 border-t hair text-[12.5px] text-gray-400">Showing 8 of 42 · <a class="text-[#1f6feb] hover:underline" href="#">show all</a></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+(() => {
+  const NOTES = {
+    v1: "Uploader accelerates out to the left; receipt decelerates in from slightly below and behind. Closest to what you described.",
+    v2: "Uploader drops away and blurs; the verdict bar unrolls from its top edge, as if the file became the result. Strongest sense of cause → effect.",
+    v3: "Uploader recedes into depth; receipt rises over the top of it. Most 'toward the screen', but the two elements cross paths."
+  };
+
+  // phase timings at 1× — the single place to tune motion
+  const T = {
+    v1: { out: 240, gap: 40,  in: 420, stagger: 26 },
+    v2: { out: 220, gap: 30,  in: 360, stagger: 22 },
+    v3: { out: 280, gap: 60,  in: 460, stagger: 30 }
+  };
+  const OUT_EASE = "cubic-bezier(.4,0,1,1)";        // accelerate away
+  const IN_EASE  = "cubic-bezier(.16,1,.3,1)";      // decelerate in
+  const SERVER_MS = 900;                            // fake round-trip
+
+  const $ = s => document.querySelector(s);
+  const stage = $("#stage"), upload = $("#uploadLayer"), result = $("#resultLayer"),
+        verdict = $("#verdictCard"), working = $("#working"), wlabel = $("#workingLabel"),
+        err = $("#uploadError"), vnote = $("#vnote");
+  const rows = [...document.querySelectorAll(".row-anim")];
+
+  let variant = "v1", scale = 1, reduced = false, busy = false;
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  const dur = ms => reduced ? 120 : ms / scale;
+
+  function setTransition(el, ms, ease, delay = 0) {
+    el.style.transitionDuration = `${ms}ms`;
+    el.style.transitionTimingFunction = reduced ? "linear" : ease;
+    el.style.transitionDelay = `${delay}ms`;
+  }
+  // force the browser to commit the pre-state before we animate away from it
+  const commit = el => void el.offsetHeight;
+
+  function reset() {
+    busy = false;
+    stage.classList.remove("crossing");
+    [upload, result, verdict, ...rows].forEach(el => {
+      el.style.cssText = "";
+      el.classList.remove("is-out", "is-in");
+    });
+    upload.hidden = false; result.hidden = true; working.hidden = true; err.hidden = true;
+    working.style.opacity = "";
+  }
+
+  async function run() {
+    if (busy) return;
+    busy = true;
+    const t = T[variant];
+    const fail = $("#failMode").checked;
+
+    // ---- phase 1: the request is in flight. The uploader stays put.
+    // Sliding it out now would mean sliding it BACK on an error, which reads as a glitch.
+    upload.style.transition = "opacity .16s ease";
+    upload.style.opacity = ".38";
+    upload.style.pointerEvents = "none";
+    working.hidden = false; working.style.opacity = "0";
+    commit(working); working.style.opacity = "1";
+
+    wlabel.textContent = "Reading…";
+    await wait(dur(SERVER_MS * .45));
+    wlabel.textContent = fail ? "Parsing…" : "Applying 9 corrections…";
+    await wait(dur(SERVER_MS * .55));
+
+    // ---- failure: uploader simply comes back. No layout ever moved.
+    if (fail) {
+      working.style.opacity = "0";
+      await wait(dur(180));
+      working.hidden = true;
+      upload.style.opacity = "1";
+      upload.style.pointerEvents = "";
+      err.hidden = false;
+      err.style.transition = "none";
+      err.style.opacity = "0"; err.style.transform = "translateY(-6px)";
+      commit(err);
+      err.style.transition = `opacity ${dur(220)}ms ease, transform ${dur(220)}ms ${IN_EASE}`;
+      err.style.opacity = "1"; err.style.transform = "translateY(0)";
+      busy = false;
+      return;
+    }
+
+    // ---- phase 2: success. NOW the uploader leaves.
+    working.style.opacity = "0";
+    stage.classList.add("crossing");           // overlap the two layers
+    upload.style.transition = "";              // hand control back to the .layer rule
+    upload.style.opacity = "";
+    setTransition(upload, dur(t.out), OUT_EASE);
+    commit(upload);
+    upload.classList.add("is-out");
+
+    await wait(dur(t.out * 0.55) + dur(t.gap));
+    working.hidden = true;
+
+    // ---- phase 3: the receipt arrives
+    result.hidden = false;
+    result.classList.add("is-in");
+    if (variant === "v2") verdict.classList.add("is-in");
+    rows.forEach(r => r.classList.add("is-in"));
+    commit(result);
+
+    setTransition(result, dur(t.in), IN_EASE);
+    if (variant === "v2") setTransition(verdict, dur(t.in), IN_EASE);
+    result.classList.remove("is-in");
+    if (variant === "v2") verdict.classList.remove("is-in");
+
+    rows.forEach((r, i) => {
+      // cap the stagger so row 40 isn't still arriving two seconds later
+      setTransition(r, dur(300), IN_EASE, dur(Math.min(i, 10) * t.stagger));
+      r.classList.remove("is-in");
+    });
+
+    await wait(dur(t.out));
+    upload.hidden = true;
+    stage.classList.remove("crossing");        // result reclaims normal flow
+    busy = false;
+  }
+
+  function setVariant(v) {
+    variant = v;
+    document.body.dataset.variant = v;
+    vnote.textContent = NOTES[v];
+    document.querySelectorAll(".vbtn").forEach(b => {
+      const on = b.dataset.v === v;
+      b.classList.toggle("bg-white", on);
+      b.classList.toggle("text-[#16181d]", on);
+      b.classList.toggle("text-white/75", !on);
+    });
+    reset();
+  }
+
+  $("#dropzone").addEventListener("click", run);
+  $("#replay").addEventListener("click", () => { reset(); requestAnimationFrame(run); });
+  $("#startOver").addEventListener("click", reset);
+  $("#speed").addEventListener("change", e => scale = +e.target.value);
+  $("#reduced").addEventListener("change", e => reduced = e.target.checked);
+  document.querySelectorAll(".vbtn").forEach(b => b.addEventListener("click", () => setVariant(b.dataset.v)));
+
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    $("#reduced").checked = true; reduced = true;
+  }
+  setVariant("v1");
+})();
+</script>
+</body>
+</html>
