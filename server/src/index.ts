@@ -39,18 +39,13 @@ const upload = multer({
 // API routes
 app.post('/api/process-ofx', upload.single('file'), async (req, res) => {
   try {
-    console.log('File upload request received');
     if (!req.file) {
-      console.log('No file found in request');
       return res.status(400).json({ error: 'No file uploaded' });
     }
-    console.log('File received:', req.file.originalname, 'Size:', req.file.size);
     try {
       const fileContent = req.file.buffer.toString('utf-8');
       const isXmlFormat = fileContent.includes('</') || fileContent.includes('/>');
-      console.log('Processing file...');
       const result = await processOfxFile(req.file.buffer);
-      console.log('File processed successfully');
       // Set appropriate headers
       res.setHeader('Content-Type', 'application/json');
       // Send the response
@@ -61,34 +56,32 @@ app.post('/api/process-ofx', upload.single('file'), async (req, res) => {
         processingStats: result.processingStats,
         isXmlFormat
       });
-    } catch (processingError: any) {
+    } catch (processingError) {
       console.error('Error processing file:', processingError);
       return res.status(500).json({
         error: 'Error processing file',
-        details: processingError.message
+        details: processingError instanceof Error ? processingError.message : String(processingError)
       });
     }
-  } catch (error: any) {
+  } catch (error) {
     console.error('Unexpected error:', error);
     return res.status(500).json({
       error: 'Server error',
-      details: error.message
+      details: error instanceof Error ? error.message : String(error)
     });
   }
+});
+
+// Return JSON for upload errors (invalid file type, size limit) instead of Express HTML
+app.use((error: Error, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (res.headersSent) {
+    return next(error);
+  }
+  return res.status(400).json({ error: error.message });
 });
   
 // Serve static files from the React app in production
 if (!isDevelopment) {
-  // Debug: Log current directory and check what's available
-  console.log('Current directory:', __dirname);
-  console.log('Available directories:');
-  try {
-    console.log('/ directory:', fs.readdirSync('/'));
-    console.log('/app directory:', fs.readdirSync('/app'));
-  } catch (err) {
-    console.error('Error listing directories:', err);
-  }
-
   // Try multiple possible paths for client build
   const possiblePaths = [
     path.join(__dirname, '../../client/dist'),
@@ -99,15 +92,14 @@ if (!isDevelopment) {
   
   let clientBuildPath = null;
   for (const p of possiblePaths) {
-    console.log('Checking path:', p);
     if (fs.existsSync(p)) {
-      console.log('Found client build at:', p);
       clientBuildPath = p;
       break;
     }
   }
   
   if (clientBuildPath) {
+    console.log('Serving client build from:', clientBuildPath);
     app.use(express.static(clientBuildPath));
     // Handle React routing, return all requests to React app
     app.use((_req, res) => {
@@ -119,8 +111,7 @@ if (!isDevelopment) {
       }
     });
   } else {
-    console.error('Could not find client build directory!');
-    console.log('Tried paths:', possiblePaths);
+    console.error('Could not find client build directory. Tried paths:', possiblePaths);
     app.use((_req, res) => {
       res.status(404).send('Client build not found. Please check your Docker configuration.');
     });
