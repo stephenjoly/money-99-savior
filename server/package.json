@@ -21,8 +21,7 @@
     "express": "^5.2.1",
     "multer": "^2.3.0",
     "ts-node": "^10.9.2",
-    "typescript": "^5.9.2",
-    "@xmldom/xmldom": "^0.9.12"
+    "typescript": "^5.9.2"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"
