@@ -1,7 +1,8 @@
 import React, { useState } from "react";
+import type { ProcessedFile } from "../types";
 
 interface FileUploaderProps {
-  onFileProcessed: (data: any) => void;
+  onFileProcessed: (data: ProcessedFile) => void;
   setLoading: (loading: boolean) => void;
 }
 
@@ -29,45 +30,39 @@ const FileUploader: React.FC<FileUploaderProps> = ({
       const formData = new FormData();
       formData.append("file", file);
 
-      console.log("Uploading file:", file.name, "Size:", file.size);
-
       const response = await fetch("/api/process-ofx", {
         method: "POST",
         body: formData,
       });
 
-      console.log("Response status:", response.status);
-      console.log(
-        "Response headers:",
-        Object.fromEntries([...response.headers.entries()])
-      );
-
-      // Get the raw text response first
       const rawText = await response.text();
-      console.log("Raw response length:", rawText.length);
 
-      if (rawText.length < 100) {
-        console.log("Raw response content:", rawText);
-      } else {
-        console.log("Raw response preview:", rawText.substring(0, 100) + "...");
-      }
-
-      // If we have text, try to parse it as JSON
-      if (rawText) {
-        try {
-          const data = JSON.parse(rawText);
-          onFileProcessed(data);
-        } catch (parseError) {
-          console.error("Error parsing JSON:", parseError);
-          throw new Error(
-            "Invalid response format from server. Check console for details."
-          );
-        }
-      } else {
+      if (!rawText) {
         throw new Error("Empty response from server");
       }
-    } catch (err: any) {
-      setError(err.message);
+
+      let data: unknown;
+      try {
+        data = JSON.parse(rawText);
+      } catch (parseError) {
+        console.error("Error parsing JSON:", parseError);
+        throw new Error(
+          "Invalid response format from server. Check console for details."
+        );
+      }
+
+      if (!response.ok) {
+        const serverError =
+          typeof data === "object" && data !== null && "error" in data
+            ? String((data as { error: unknown }).error)
+            : `Request failed with status ${response.status}`;
+        throw new Error(serverError);
+      }
+
+      onFileProcessed(data as ProcessedFile);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
       console.error("Error uploading file:", err);
     } finally {
       setLoading(false);
