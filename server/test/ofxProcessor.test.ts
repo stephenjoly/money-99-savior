@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { processOfxFile, validateFileType } from '../src/utils/ofxProcessor';
+import {
+  processOfxFile,
+  validateFileType,
+  computeNameEdits,
+  getMerchantRules,
+} from '../src/utils/ofxProcessor';
 
 const sgmlFile = [
   'OFXHEADER:100',
@@ -159,5 +164,140 @@ describe('validateFileType', () => {
     expect(validateFileType('statement.txt')).toBe(false);
     expect(validateFileType('statement')).toBe(false);
     expect(validateFileType('statement.csv')).toBe(false);
+  });
+});
+
+describe('computeNameEdits', () => {
+  it('returns no edits for a name nothing applies to', () => {
+    const { edits, finalName } = computeNameEdits('SHELL C36284');
+
+    expect(edits).toEqual([]);
+    expect(finalName).toBe('SHELL C36284');
+  });
+
+  it('records a merchant rename with the rule that matched', () => {
+    const { edits, finalName } = computeNameEdits('AMZN MKTP US1234567 WWWAMAZONC');
+
+    expect(finalName).toBe('AMAZON');
+    expect(edits).toHaveLength(1);
+    expect(edits[0]).toMatchObject({
+      kind: 'renamed',
+      from: 'AMZN MKTP US1234567 WWWAMAZONC',
+      to: 'AMAZON',
+      rule: 'AMZN MKTP [A-Z0-9]+ WWWAMAZONC',
+    });
+  });
+
+  it('records a shortening when the name is still over 32 characters', () => {
+    const { edits, finalName } = computeNameEdits(
+      'A VERY LONG MERCHANT NAME THAT IS OVER THIRTY TWO CHARACTERS'
+    );
+
+    expect(finalName).toBe('A VERY LONG MERCHANT NAME THAT I');
+    expect(edits).toHaveLength(1);
+    expect(edits[0].kind).toBe('shortened');
+  });
+
+  it('records a rename and a shortening in the order they were applied', () => {
+    const { edits, finalName } = computeNameEdits(
+      'COSTCO WHOLESALE W12345 LONGNAME THAT EXCEEDS THIRTY TWO CHARS'
+    );
+
+    expect(edits.map((e) => e.kind)).toEqual(['renamed', 'shortened']);
+    expect(edits[0].to).toBe('COSTCO LONGNAME THAT EXCEEDS THIRTY TWO CHARS');
+    expect(edits[1].to).toBe('COSTCO LONGNAME THAT EXCEEDS THI');
+    expect(finalName).toBe('COSTCO LONGNAME THAT EXCEEDS THI');
+  });
+
+  it('records ampersand removal as a rename', () => {
+    const { edits, finalName } = computeNameEdits('AT&T STORE');
+
+    expect(finalName).toBe('ATT STORE');
+    expect(edits).toHaveLength(1);
+    expect(edits[0]).toMatchObject({ kind: 'renamed', rule: '&' });
+  });
+
+  it('does not carry regex lastIndex between calls', () => {
+    const first = computeNameEdits('AMZN MKTP US1234567 WWWAMAZONC');
+    const second = computeNameEdits('AMZN MKTP US7654321 WWWAMAZONC');
+
+    expect(first.finalName).toBe('AMAZON');
+    expect(second.finalName).toBe('AMAZON');
+  });
+});
+
+describe('per-transaction edits', () => {
+  it('attaches the edit trail to the transaction it happened to', async () => {
+    const result = await processOfxFile(Buffer.from(sgmlFile));
+
+    expect(result.transactions[0].edits?.map((e) => e.kind)).toEqual([
+      'renamed',
+      'shortened',
+    ]);
+    expect(result.transactions[0].edits?.[0].from).toBe(
+      'COSTCO WHOLESALE W12345 LONGNAME THAT EXCEEDS THIRTY TWO CHARS'
+    );
+
+    expect(result.transactions[1].edits).toHaveLength(1);
+    expect(result.transactions[1].edits?.[0]).toMatchObject({
+      kind: 'renamed',
+      to: 'AMAZON',
+    });
+  });
+
+  it('leaves untouched transactions without an edits key', async () => {
+    const content =
+      'OFXHEADER:100\n<OFX><STMTTRN>\n<TRNTYPE>DEBIT\n<FITID>1\n<NAME>SHORT NAME\n</STMTTRN></OFX>';
+    const result = await processOfxFile(Buffer.from(content));
+
+    expect(result.transactions[0].name).toBe('SHORT NAME');
+    expect(result.transactions[0].edits).toBeUndefined();
+  });
+
+  // Names are compared trimmed: a cut that lands on a space leaves the edit's
+  // `to` with trailing whitespace that extraction strips back off.
+  it('agrees with the final name written into the processed file', async () => {
+    const result = await processOfxFile(Buffer.from(sgmlFile));
+
+    for (const transaction of result.transactions) {
+      const lastEdit = transaction.edits?.[transaction.edits.length - 1];
+      if (lastEdit) {
+        expect(lastEdit.to.trim()).toBe(transaction.name);
+      }
+    }
+  });
+
+  it('keeps a shortening reversible when the cut lands on a space', async () => {
+    const content = [
+      'OFXHEADER:100',
+      '<OFX><STMTTRN>',
+      '<TRNTYPE>DEBIT',
+      '<FITID>1',
+      '<NAME>HYDRO ONE PREAUTHORIZED PAYMENT AUG',
+      '</STMTTRN></OFX>',
+    ].join('\n');
+    const result = await processOfxFile(Buffer.from(content));
+    const edit = result.transactions[0].edits?.[0];
+
+    expect(edit?.kind).toBe('shortened');
+    // head + tail must reconstruct the original exactly, spaces included.
+    expect(edit!.to + edit!.from.slice(edit!.to.length)).toBe(edit!.from);
+    expect(edit!.to).toHaveLength(32);
+  });
+});
+
+describe('getMerchantRules', () => {
+  it('exposes the rename rules as plain strings for the rules page', () => {
+    const rules = getMerchantRules();
+
+    expect(rules.length).toBeGreaterThan(0);
+    expect(rules).toContainEqual({
+      pattern: 'COSTCO WHOLESALE W\\d+',
+      replacement: 'COSTCO',
+    });
+    for (const rule of rules) {
+      expect(typeof rule.pattern).toBe('string');
+      expect(typeof rule.replacement).toBe('string');
+    }
   });
 });
