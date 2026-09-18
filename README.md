@@ -12,6 +12,9 @@ Money 99 Savior processes OFX (Open Financial Exchange) files to ensure compatib
 
 - **OFX File Processing**: Cleans and standardizes OFX files for maximum compatibility with Money 99
 - **Transaction Viewing**: View your financial transactions in a clean, organized interface
+- **Correction Summary**: A receipt after every upload showing exactly what was changed and why
+- **Per-Transaction Edits**: See which transactions were renamed or shortened, with before/after names, and filter to just the changed ones
+- **Correction Rules Page**: Browse the merchant rename rules and built-in fixes the app applies (`/rules`)
 - **Name Standardization**: Automatically standardizes merchant names for better categorization
 - **Character Limit Handling**: Truncates transaction names to 32 characters to meet MS Money 99 requirements
 - **Tag Cleanup**: Removes unnecessary tags that can cause issues with legacy software
@@ -32,7 +35,7 @@ Money 99 Savior handles several common issues with OFX files that prevent them f
 
 1. Upload your OFX file through the web interface
 2. Money 99 Savior will process and clean the file
-3. View your transactions in the browser
+3. Review the receipt: a summary of corrections, plus the transaction list with changed entries highlighted
 4. Download the cleaned OFX file for use with Microsoft Money 99
 
 ## Compatibility
