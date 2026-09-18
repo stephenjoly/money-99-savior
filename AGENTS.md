@@ -52,7 +52,9 @@ The release path is:
 - Build the image before pushing: `docker build -t money-99-savior:local .`.
 - Smoke-test the container: run it, then check `/health` and process a sample OFX file through
   `POST /api/process-ofx`.
-- Run client lint/typecheck (`cd client && npm run lint`, `tsc -b`) when changing the UI.
+- Run the checks before pushing: `npm test` (server vitest suite), `npm run typecheck`, and
+  `npm run lint`. CI runs all three before the Docker build.
+- Add or update tests in `server/test/` when changing OFX processing behavior.
 - Report failures and environment limits honestly rather than claiming success.
 
 ## Handoff and retirement
