@@ -3,7 +3,7 @@ name: Validate Docker Build
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, staging]
 
 permissions:
   contents: read
