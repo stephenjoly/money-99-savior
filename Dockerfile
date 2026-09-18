@@ -1,8 +1,7 @@
 # Dockerfile
 FROM node:22-alpine AS build
 
-ARG APP_VERSION="vDev"
-ENV VITE_APP_VERSION=${APP_VERSION}
+ARG APP_VERSION=""
 
 WORKDIR /build
 
@@ -20,7 +19,9 @@ RUN cd server && npm ci
 COPY . .
 
 # Build frontend
-RUN cd client && npm run build
+RUN cd client && \
+  APP_VERSION="${APP_VERSION:-v$(date -u +%Y.%m.%d.%H%M)}" && \
+  VITE_APP_VERSION="$APP_VERSION" npm run build
 
 # Build backend
 RUN cd server && npm run build

@@ -1,13 +1,6 @@
 // server/src/utils/ofxProcessor.ts
 
-import * as fs from 'fs';
 import * as path from 'path';
-import { promisify } from 'util';
-import { DOMParser } from '@xmldom/xmldom';
-
-const readFileAsync = promisify(fs.readFile);
-const writeFileAsync = promisify(fs.writeFile);
-
 
 // Default replacements from the Python code
 const replacements: Record<string, string> = {
@@ -54,9 +47,7 @@ interface ProcessingStats {
 
 // Simple function to check if NAME elements have closing tags
 function hasNameClosingTags(content: string): boolean {
-  const hasNameClosingTag = content.includes('</NAME>');
-  console.log("Format detection: has </NAME> closing tags =", hasNameClosingTag);
-  return hasNameClosingTag;
+  return content.includes('</NAME>');
 }
 
 // Extract transactions from XML format OFX
@@ -128,28 +119,20 @@ function truncateNameFields(content: string): {
   processedContent: string;
   truncatedNames: { original: string; truncated: string }[];
 } {
-  console.log("=== Starting NAME field truncation ===");
-  
   const truncatedNames: { original: string; truncated: string }[] = [];
   let modifiedContent = content;
   const hasClosingTags = hasNameClosingTags(content);
   
   // Define a helper function to truncate a name value
   const performTruncation = (nameValue: string, maxLength: number = 32): string => {
-    // // Log the exact character count
-    // console.log(`Checking name: "${nameValue}" (length: ${nameValue.length})`);
-    
     if (nameValue.length > maxLength) {
-      const truncatedName = nameValue.substring(0, maxLength);
-      console.log(`Truncating "${nameValue}" (length: ${nameValue.length})`);
-      return truncatedName;
+      return nameValue.substring(0, maxLength);
     }
     return nameValue;
   };
   
   // Handle format with closing tags
   if (hasClosingTags) {
-    console.log("Processing using closing tag format rules");
     const nameTagRegex = /(<NAME>\s*)(.*?)(\s*<\/NAME>)/gi;
     let match;
     
@@ -175,7 +158,6 @@ function truncateNameFields(content: string): {
   }
   // Handle format without closing tags
   else {
-    console.log("Processing using non-closing tag format rules");
     const nameTagRegex = /(<NAME>\s*)(.*?)(?=\n|<|$)/gmi;
     let match;
     
@@ -200,25 +182,18 @@ function truncateNameFields(content: string): {
     }
   }
   
-  console.log(`Truncation complete. Modified ${truncatedNames.length} NAME fields.`);
-  
-  // Add a verification step
-  console.log("Verifying truncation results...");
+  // Verification step: warn if any NAME still exceeds the limit
   const verifyRegex = hasClosingTags ? 
     /<NAME>(.*?)<\/NAME>/gi : 
     /<NAME>(.*?)(?=\n|<|$)/gmi;
   
-  let longNamesAfter = 0;
   let match;
   while ((match = verifyRegex.exec(modifiedContent)) !== null) {
     const nameValue = match[1].trim();
     if (nameValue.length > 32) {
-      longNamesAfter++;
-      console.log(`WARNING: Found name still over 32 chars after truncation: "${nameValue}" (${nameValue.length})`);
+      console.warn(`WARNING: Found name still over 32 chars after truncation: "${nameValue}" (${nameValue.length})`);
     }
   }
-  
-  console.log(`Verification complete. Found ${longNamesAfter} names still over 32 characters.`);
   
   return {
     processedContent: modifiedContent,
@@ -286,12 +261,8 @@ export async function processOfxFile(fileBuffer: Buffer): Promise<{
   processingStats: ProcessingStats;
 }> {
 
-  console.log("=== Starting OFX processing ===");
-  console.log("File size:", fileBuffer.length, "bytes");
-  
   // Convert buffer to string
   let content = fileBuffer.toString('utf-8');
-  console.log("File encoding detected as UTF-8");
   
   const processingStats: ProcessingStats = {
     replacements: [],
@@ -300,12 +271,10 @@ export async function processOfxFile(fileBuffer: Buffer): Promise<{
   };
   
   // Apply replacements
-  console.log("Applying standard replacements...");
   for (const [old, newVal] of Object.entries(replacements)) {
     const regex = new RegExp(old.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
     const matches = content.match(regex);
     if (matches && matches.length > 0) {
-      console.log(`Found ${matches.length} matches for pattern: ${old.substring(0, 30)}...`);
       processingStats.replacements.push({
         pattern: old,
         count: matches.length,
@@ -316,11 +285,9 @@ export async function processOfxFile(fileBuffer: Buffer): Promise<{
   }
   
   // Apply regex patterns
-  console.log("Applying regex pattern replacements...");
   for (const [pattern, replacement] of regexPatterns) {
     const matches = content.match(pattern);
     if (matches && matches.length > 0) {
-      console.log(`Found ${matches.length} matches for pattern: ${pattern.toString()}`);
       processingStats.replacements.push({
         pattern: pattern.toString(),
         count: matches.length,
@@ -331,28 +298,19 @@ export async function processOfxFile(fileBuffer: Buffer): Promise<{
   }
   
   // Truncate NAME fields
-  console.log("Starting NAME field truncation...");
   const nameResult = truncateNameFields(content);
   content = nameResult.processedContent;
   if (nameResult.truncatedNames.length > 0) {
-    console.log(`Truncated ${nameResult.truncatedNames.length} NAME fields`);
     processingStats.truncatedNames = nameResult.truncatedNames;
-  } else {
-    console.log("No NAME fields required truncation");
   }
   
   // Remove unwanted tags (SIC and CORRECTFITID)
-  console.log("Removing unwanted tags...");
   const tagResult = removeUnwantedTags(content);
   content = tagResult.processedContent;
   processingStats.removedTags = tagResult.removedTags;
   
   // Extract transactions
-  console.log("Extracting transactions...");
   const transactions = extractTransactions(content);
-  console.log(`Extracted ${transactions.length} transactions`);
-  
-  console.log("=== OFX processing complete ===");
   
   return {
     processedContent: content,
