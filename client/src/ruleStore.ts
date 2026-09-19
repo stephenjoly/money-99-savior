@@ -1,25 +1,25 @@
 // client/src/ruleStore.ts
-import type { MerchantRule, RuleLimits, RuleUsageStat } from "./types";
+import type { MerchantRule, RuleLimits } from "./types";
+import {
+  DEFAULT_MERCHANT_RULES,
+  RULE_LIMITS,
+} from "./ofx/processor";
 
 /**
- * Rules live in this browser, never on the server. localStorage is the store of
- * record; uploads carry a copy so processing stays stateless and a request
- * cannot see another visitor's rules.
+ * Rules live in this browser and processing happens on this machine, so rules
+ * never need to travel anywhere. localStorage merely remembers the visitor's
+ * edits between visits.
  */
 const RULES_KEY = "money99.merchantRules.v1";
 const USAGE_KEY = "money99.ruleUsage.v1";
 
-export const DEFAULT_LIMITS: RuleLimits = {
-  maxRules: 50,
-  maxPatternLength: 200,
-  maxReplacementLength: 200,
-};
+export const DEFAULT_LIMITS: RuleLimits = RULE_LIMITS;
 
 export interface StoredRules {
   rules: MerchantRule[];
   /**
    * False until the user has actually changed something. While false the page
-   * uses the server defaults, so a later deploy can improve them without the
+   * uses the built-in defaults, so a later deploy can improve them without the
    * visitor being pinned to a stale copy.
    */
   customized: boolean;
@@ -66,19 +66,19 @@ export function clearStoredRules(): void {
 }
 
 /**
- * What an upload should send. Null means "no opinion" so the server applies its
- * own defaults rather than a stale copy of them.
+ * The rules processing should use right now: the visitor's edits when they have
+ * made any, otherwise the built-in defaults.
  */
-export function getRulesForUpload(): MerchantRule[] | null {
+export function getEffectiveRules(): MerchantRule[] {
   const stored = loadStoredRules();
-  return stored.customized ? stored.rules : null;
+  return stored.customized ? stored.rules : DEFAULT_MERCHANT_RULES;
 }
 
 export function getRuleUsage(): Record<string, number> {
   return readJSON<Record<string, number>>(USAGE_KEY) ?? {};
 }
 
-export function recordRuleUsage(stats: RuleUsageStat[]): void {
+export function recordRuleUsage(stats: { pattern: string; count: number }[]): void {
   if (!stats.length) return;
   const usage = getRuleUsage();
   for (const stat of stats) {
@@ -88,8 +88,8 @@ export function recordRuleUsage(stats: RuleUsageStat[]): void {
 }
 
 // Catastrophic backtracking needs a quantified group that itself contains a
-// quantifier, e.g. (A+)+. The server re-checks everything; this is for instant
-// feedback while typing.
+// quantifier, e.g. (A+)+. Patterns run in the browser now, so a bad one hangs
+// the tab rather than a server; this check matters more than it used to.
 const NESTED_QUANTIFIER = /\((?:[^()\\]|\\.)*[*+{](?:[^()\\]|\\.)*\)\s*[*+{]/;
 
 /** Returns a user-facing error, or null when the rule is usable. */
@@ -106,7 +106,7 @@ export function validateRule(
     return `Replacements are limited to ${limits.maxReplacementLength} characters.`;
   }
   if (NESTED_QUANTIFIER.test(pattern)) {
-    return "That pattern has nested repetition and could hang processing.";
+    return "That pattern repeats itself in a way that could freeze the page.";
   }
   try {
     new RegExp(pattern);

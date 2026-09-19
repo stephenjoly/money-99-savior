@@ -58,17 +58,3 @@ export interface RuleLimits {
   maxPatternLength: number;
   maxReplacementLength: number;
 }
-
-/** One rule's match count from the last processed file. */
-export interface RuleUsageStat {
-  pattern: string;
-  count: number;
-  examples: string[];
-}
-
-export interface RulesResponse {
-  merchantRules: MerchantRule[];
-  maxNameLength: number;
-  removedTags: string[];
-  limits: RuleLimits;
-}

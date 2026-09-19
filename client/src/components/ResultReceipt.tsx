@@ -181,7 +181,7 @@ const ResultReceipt: React.FC<ResultReceiptProps> = ({
         >
           correction rules
         </a>
-        . Nothing is uploaded anywhere but this page.
+        . This file was never uploaded — it was cleaned in your browser.
       </p>
     </div>
   );

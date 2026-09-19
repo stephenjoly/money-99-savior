@@ -1,6 +1,6 @@
 // client/src/pages/RulesPage.tsx
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { MerchantRule, RulesResponse } from "../types";
+import React, { useCallback, useMemo, useRef, useState } from "react";
+import type { MerchantRule } from "../types";
 import {
   DEFAULT_LIMITS,
   clearStoredRules,
@@ -13,8 +13,11 @@ import {
   validateRule,
   type RulePreview,
 } from "../ruleStore";
-
-const FALLBACK_RULES: MerchantRule[] = [];
+import {
+  DEFAULT_MERCHANT_RULES,
+  MAX_NAME_LENGTH,
+  REMOVED_TAGS,
+} from "../ofx/processor";
 
 interface Draft {
   /** Index being edited, or "new" for the add form. */
@@ -24,8 +27,6 @@ interface Draft {
 }
 
 const RulesPage: React.FC = () => {
-  const [response, setResponse] = useState<RulesResponse | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [customized, setCustomized] = useState(() => loadStoredRules().customized);
   const [rules, setRules] = useState<MerchantRule[]>(
     () => loadStoredRules().rules
@@ -35,30 +36,8 @@ const RulesPage: React.FC = () => {
   const [notice, setNotice] = useState<string | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    fetch("/api/rules")
-      .then((res) => {
-        if (!res.ok) throw new Error(`Request failed (${res.status})`);
-        return res.json();
-      })
-      .then((data: RulesResponse) => {
-        if (!cancelled) setResponse(data);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          setLoadError(err instanceof Error ? err.message : String(err));
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const limits = response?.limits ?? DEFAULT_LIMITS;
-  const defaults = response?.merchantRules ?? FALLBACK_RULES;
+  const limits = DEFAULT_LIMITS;
+  const defaults = DEFAULT_MERCHANT_RULES;
   const effectiveRules = customized ? rules : defaults;
   const usage = useMemo(() => getRuleUsage(), []);
   const rememberedNames = useMemo(() => getRememberedNames(), []);
@@ -119,7 +98,7 @@ const RulesPage: React.FC = () => {
 
     setDraft(null);
     setDraftError(null);
-    setNotice("Saved. Your next upload will use this.");
+    setNotice("Saved. Your next file will use this.");
   };
 
   const deleteRule = (index: number) => {
@@ -167,8 +146,8 @@ const RulesPage: React.FC = () => {
     ? previewRule(draft.pattern, draft.replacement, rememberedNames)
     : null;
 
-  const maxNameLength = response?.maxNameLength ?? 32;
-  const removedTags = response?.removedTags ?? ["SIC", "CORRECTFITID"];
+  const maxNameLength = MAX_NAME_LENGTH;
+  const removedTags = REMOVED_TAGS;
 
   return (
     <main className="max-w-4xl mx-auto px-5 py-9">
@@ -205,18 +184,7 @@ const RulesPage: React.FC = () => {
         </div>
 
         <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-          {loadError && (
-            <div role="alert" className="px-5 py-4 text-[13px] text-rose-700">
-              Couldn’t load the built-in rules — {loadError}
-            </div>
-          )}
-
-          {!response && !customized && !loadError && (
-            <div className="px-5 py-4 text-[13px] text-gray-400">Loading…</div>
-          )}
-
-          {(response || customized) && (
-            <table className="w-full text-[13.5px]">
+          <table className="w-full text-[13.5px]">
               <thead>
                 <tr className="text-[11px] uppercase tracking-wider text-gray-400 text-left border-b border-gray-200">
                   <th scope="col" className="font-medium px-5 py-2.5">
@@ -304,7 +272,7 @@ const RulesPage: React.FC = () => {
                         No merchant rules
                       </p>
                       <p className="mt-1 text-[13px] text-gray-500">
-                        Uploads will still get the built-in compatibility fixes,
+                        Files will still get the built-in compatibility fixes,
                         but names won’t be renamed.
                       </p>
                     </td>
@@ -312,7 +280,6 @@ const RulesPage: React.FC = () => {
                 )}
               </tbody>
             </table>
-          )}
 
           <div className="px-5 py-2.5 border-t border-gray-200 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12.5px]">
             <button
@@ -359,7 +326,7 @@ const RulesPage: React.FC = () => {
           {!draftError && !notice && (
             <p className="text-gray-400">
               {rememberedNames.length > 0
-                ? "Your rules are stored in this browser and sent with each upload."
+                ? "Rules are applied in your browser, so nothing you edit is sent anywhere."
                 : "Your rules are stored in this browser. Preview examples will appear here after you clean a file."}
             </p>
           )}
@@ -422,7 +389,7 @@ const RulesPage: React.FC = () => {
         </div>
 
         <p className="mt-4 text-[12.5px] text-gray-400">
-          Your file is processed in memory and never stored.
+          Your file is opened and cleaned in your browser and never uploaded.
         </p>
       </section>
     </main>
