@@ -1,8 +1,9 @@
 // client/src/ruleStore.ts
-import type { MerchantRule, RuleLimits } from "./types";
+import type { MerchantRule, RuleLimits, RuleMode } from "./types";
 import {
   DEFAULT_MERCHANT_RULES,
   RULE_LIMITS,
+  ruleSource,
 } from "./ofx/processor";
 
 /**
@@ -96,15 +97,19 @@ const NESTED_QUANTIFIER = /\((?:[^()\\]|\\.)*[*+{](?:[^()\\]|\\.)*\)\s*[*+{]/;
 export function validateRule(
   pattern: string,
   replacement: string,
-  limits: RuleLimits = DEFAULT_LIMITS
+  limits: RuleLimits = DEFAULT_LIMITS,
+  mode: RuleMode = "pattern"
 ): string | null {
-  if (!pattern) return "Enter a pattern to match.";
+  if (!pattern) return "Enter something to match.";
   if (pattern.length > limits.maxPatternLength) {
-    return `Patterns are limited to ${limits.maxPatternLength} characters.`;
+    return `Matches are limited to ${limits.maxPatternLength} characters.`;
   }
   if (replacement.length > limits.maxReplacementLength) {
     return `Replacements are limited to ${limits.maxReplacementLength} characters.`;
   }
+  // Literal text is escaped before compiling, so none of the pattern checks
+  // below can fail on it.
+  if (mode === "text") return null;
   if (NESTED_QUANTIFIER.test(pattern)) {
     return "That pattern repeats itself in a way that could freeze the page.";
   }
@@ -128,11 +133,12 @@ export interface RulePreview {
 export function previewRule(
   pattern: string,
   replacement: string,
-  names: string[]
+  names: string[],
+  mode: RuleMode = "pattern"
 ): RulePreview[] | null {
   let regex: RegExp;
   try {
-    regex = new RegExp(pattern, "g");
+    regex = new RegExp(ruleSource({ pattern, replacement, mode }), "g");
   } catch {
     return null;
   }
@@ -179,17 +185,22 @@ export function getRememberedNames(): string[] {
   }
 
   return parsed.map((entry, index) => {
-    const { pattern, replacement } = (entry ?? {}) as {
+    const { pattern, replacement, mode } = (entry ?? {}) as {
       pattern?: unknown;
       replacement?: unknown;
+      mode?: unknown;
     };
     if (typeof pattern !== "string" || typeof replacement !== "string") {
       throw new Error(`Rule ${index + 1} needs a pattern and a replacement.`);
     }
-    const error = validateRule(pattern, replacement, limits);
+    // Files exported before modes existed carry no mode; they were patterns.
+    if (mode !== undefined && mode !== "text" && mode !== "pattern") {
+      throw new Error(`Rule ${index + 1} has an unknown mode.`);
+    }
+    const error = validateRule(pattern, replacement, limits, mode ?? "pattern");
     if (error) {
       throw new Error(`Rule ${index + 1}: ${error}`);
     }
-    return { pattern, replacement };
+    return mode ? { pattern, replacement, mode } : { pattern, replacement };
   });
 }

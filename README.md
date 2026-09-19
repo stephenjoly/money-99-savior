@@ -16,6 +16,7 @@ Money 99 Savior processes OFX (Open Financial Exchange) files to ensure compatib
 - **Correction Summary**: A receipt after every upload showing exactly what was changed and why
 - **Per-Transaction Edits**: See which transactions were renamed or shortened, with before/after names, and filter to just the changed ones
 - **Correction Rules Page**: Browse and edit the merchant rename rules, with live preview, import/export, and a "used" count (`/rules`)
+- **Plain Text or Pattern Rules**: Match exact text with no regex knowledge needed, or switch to patterns for variants like store numbers and alternate spellings, with a built-in cheat sheet
 - **Name Standardization**: Automatically standardizes merchant names for better categorization
 - **Character Limit Handling**: Truncates transaction names to 32 characters to meet MS Money 99 requirements
 - **Tag Cleanup**: Removes unnecessary tags that can cause issues with legacy software

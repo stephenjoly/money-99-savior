@@ -116,8 +116,17 @@ interface CompiledRule {
   regex: RegExp;
 }
 
+/**
+ * A text-mode rule is literal, so every regex metacharacter is escaped. This is
+ * the only difference between the two modes at match time.
+ */
+export function ruleSource(rule: MerchantRule): string {
+  if (rule.mode !== "text") return rule.pattern;
+  return rule.pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function compileMerchantRules(rules: MerchantRule[]): CompiledRule[] {
-  return rules.map((rule) => ({ rule, regex: new RegExp(rule.pattern, 'g') }));
+  return rules.map((rule) => ({ rule, regex: new RegExp(ruleSource(rule), 'g') }));
 }
 
 // Simple function to check if NAME elements have closing tags
