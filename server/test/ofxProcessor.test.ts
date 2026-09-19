@@ -4,6 +4,7 @@ import {
   validateFileType,
   computeNameEdits,
   getMerchantRules,
+  validateMerchantRules,
 } from '../src/utils/ofxProcessor';
 
 const sgmlFile = [
@@ -299,5 +300,118 @@ describe('getMerchantRules', () => {
       expect(typeof rule.pattern).toBe('string');
       expect(typeof rule.replacement).toBe('string');
     }
+  });
+
+  it('returns a copy so callers cannot mutate the defaults', () => {
+    const first = getMerchantRules();
+    first[0].replacement = 'MUTATED';
+
+    expect(getMerchantRules()[0].replacement).not.toBe('MUTATED');
+  });
+});
+
+describe('validateMerchantRules', () => {
+  it('accepts a well-formed rule list', () => {
+    const rules = validateMerchantRules([
+      { pattern: 'AMZN MKTP US\\d+', replacement: 'AMAZON' },
+      { pattern: '^SQ \\*', replacement: 'SQUARE' },
+    ]);
+
+    expect(rules).toHaveLength(2);
+    expect(rules[0]).toEqual({ pattern: 'AMZN MKTP US\\d+', replacement: 'AMAZON' });
+  });
+
+  it('rejects a non-array', () => {
+    expect(() => validateMerchantRules({ pattern: 'X', replacement: 'Y' })).toThrow(/array/i);
+  });
+
+  it('rejects an entry without a pattern or replacement', () => {
+    expect(() => validateMerchantRules([{ replacement: 'X' }])).toThrow(/pattern/i);
+    expect(() => validateMerchantRules([{ pattern: 'X' }])).toThrow(/replacement/i);
+  });
+
+  it('rejects an invalid regular expression', () => {
+    expect(() => validateMerchantRules([{ pattern: '(unclosed', replacement: 'X' }])).toThrow(
+      /valid pattern/i
+    );
+  });
+
+  it('rejects an empty pattern', () => {
+    expect(() => validateMerchantRules([{ pattern: '', replacement: 'X' }])).toThrow(/pattern/i);
+  });
+
+  it('rejects an over-long pattern', () => {
+    const pattern = 'A'.repeat(201);
+
+    expect(() => validateMerchantRules([{ pattern, replacement: 'X' }])).toThrow(/too long/i);
+  });
+
+  it('rejects nested repetition that could hang processing', () => {
+    expect(() => validateMerchantRules([{ pattern: '(A+)+', replacement: 'X' }])).toThrow(
+      /nested repetition/i
+    );
+    expect(() => validateMerchantRules([{ pattern: '(\\w*)*X', replacement: 'Y' }])).toThrow(
+      /nested repetition/i
+    );
+  });
+});
+
+describe('custom merchant rules', () => {
+  const fileWith = (name: string) =>
+    Buffer.from(
+      [
+        'OFXHEADER:100',
+        '<OFX><STMTTRN>',
+        '<TRNTYPE>DEBIT',
+        '<FITID>1',
+        `<NAME>${name}`,
+        '</STMTTRN></OFX>',
+      ].join('\n')
+    );
+
+  it('applies a caller-supplied rule instead of the defaults', async () => {
+    const result = await processOfxFile(fileWith('SQ *MY LOCAL CAFE'), [
+      { pattern: '^SQ \\*', replacement: 'SQUARE ' },
+    ]);
+
+    expect(result.transactions[0].name).toBe('SQUARE MY LOCAL CAFE');
+    expect(result.transactions[0].edits?.[0]).toMatchObject({
+      kind: 'renamed',
+      rule: '^SQ \\*',
+    });
+  });
+
+  it('does not apply the defaults when a caller list is given', async () => {
+    const result = await processOfxFile(fileWith('AMZN MKTP US1234567 WWWAMAZONC'), [
+      { pattern: 'NOPE', replacement: 'NOPE' },
+    ]);
+
+    expect(result.transactions[0].name).toBe('AMZN MKTP US1234567 WWWAMAZONC');
+    expect(result.transactions[0].edits).toBeUndefined();
+  });
+
+  it('only touches NAME values, never other tags', async () => {
+    const result = await processOfxFile(fileWith('GROCERY MART'), [
+      { pattern: 'DEBIT', replacement: 'HACKED' },
+    ]);
+
+    expect(result.processedContent).toContain('<TRNTYPE>DEBIT');
+    expect(result.transactions[0].type).toBe('DEBIT');
+    expect(result.transactions[0].name).toBe('GROCERY MART');
+  });
+
+  it('reports per-rule usage counts and examples', async () => {
+    const result = await processOfxFile(Buffer.from(sgmlFile), [
+      { pattern: 'COSTCO WHOLESALE W\\d+', replacement: 'COSTCO' },
+      { pattern: 'NEVER MATCHES', replacement: 'X' },
+    ]);
+
+    expect(result.processingStats.ruleStats).toEqual([
+      {
+        pattern: 'COSTCO WHOLESALE W\\d+',
+        count: 1,
+        examples: ['COSTCO WHOLESALE W12345 LONGNAME THAT EXCEEDS THIRTY TWO CHARS'],
+      },
+    ]);
   });
 });

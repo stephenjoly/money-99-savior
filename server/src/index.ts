@@ -4,7 +4,7 @@ import cors from 'cors';
 import path from 'path';
 import multer from 'multer';
 import fs from 'fs';
-import { processOfxFile, validateFileType, getMerchantRules, MAX_NAME_LENGTH } from './utils/ofxProcessor';
+import { processOfxFile, validateFileType, getMerchantRules, validateMerchantRules, MAX_NAME_LENGTH, MAX_MERCHANT_RULES, MAX_RULE_PATTERN_LENGTH, MAX_RULE_REPLACEMENT_LENGTH } from './utils/ofxProcessor';
   
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -25,6 +25,11 @@ app.get('/api/rules', (_req, res) => {
     merchantRules: getMerchantRules(),
     maxNameLength: MAX_NAME_LENGTH,
     removedTags: ['SIC', 'CORRECTFITID'],
+    limits: {
+      maxRules: MAX_MERCHANT_RULES,
+      maxPatternLength: MAX_RULE_PATTERN_LENGTH,
+      maxReplacementLength: MAX_RULE_REPLACEMENT_LENGTH,
+    },
   });
 });
   
@@ -35,7 +40,8 @@ const upload = multer({
   limits: {
     fileSize: 10 * 1024 * 1024,
     files: 1,
-    fields: 0,
+    // One non-file field: the optional JSON list of the client's merchant rules.
+    fields: 1,
   },
   fileFilter: (req, file, cb) => {
     if (validateFileType(file.originalname)) {
@@ -55,7 +61,27 @@ app.post('/api/process-ofx', upload.single('file'), async (req, res) => {
     try {
       const fileContent = req.file.buffer.toString('utf-8');
       const isXmlFormat = fileContent.includes('</') || fileContent.includes('/>');
-      const result = await processOfxFile(req.file.buffer);
+
+      // The client sends its saved rules so processing stays stateless server-side.
+      // No rules field means "use the built-in defaults".
+      let merchantRules;
+      if (typeof req.body?.rules === 'string' && req.body.rules.length > 0) {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(req.body.rules);
+        } catch {
+          return res.status(400).json({ error: 'Rules must be valid JSON.' });
+        }
+        try {
+          merchantRules = validateMerchantRules(parsed);
+        } catch (ruleError) {
+          return res.status(400).json({
+            error: ruleError instanceof Error ? ruleError.message : String(ruleError)
+          });
+        }
+      }
+
+      const result = await processOfxFile(req.file.buffer, merchantRules);
       // Set appropriate headers
       res.setHeader('Content-Type', 'application/json');
       // Send the response
