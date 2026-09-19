@@ -1,7 +1,8 @@
 // client/src/components/FileUploader.tsx
 import React, { useRef, useState } from "react";
 import type { ProcessedFile } from "../types";
-import { getRulesForUpload, recordRuleUsage, rememberNames } from "../ruleStore";
+import { getEffectiveRules, recordRuleUsage, rememberNames } from "../ruleStore";
+import { MAX_FILE_SIZE, processOfxContent, validateFileType } from "../ofx/processor";
 
 interface FileUploaderProps {
   onStart: (filename: string) => void;
@@ -9,8 +10,6 @@ interface FileUploaderProps {
   onError: () => void;
   disabled: boolean;
 }
-
-const ACCEPTED = ["ofx", "qfx", "qbo"];
 
 const FileUploader: React.FC<FileUploaderProps> = ({
   onStart,
@@ -23,11 +22,15 @@ const FileUploader: React.FC<FileUploaderProps> = ({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const processFile = async (file: File) => {
-    const fileExt = file.name.split(".").pop()?.toLowerCase();
-    if (!ACCEPTED.includes(fileExt || "")) {
+    if (!validateFileType(file.name)) {
       setError(
         `“${file.name}” isn’t a statement file. Money 99 Savior reads .ofx, .qfx and .qbo.`
       );
+      return;
+    }
+
+    if (file.size > MAX_FILE_SIZE) {
+      setError(`“${file.name}” is larger than 10 MB.`);
       return;
     }
 
@@ -35,44 +38,15 @@ const FileUploader: React.FC<FileUploaderProps> = ({
     onStart(file.name);
 
     try {
-      const formData = new FormData();
-      formData.append("file", file);
+      // Everything below happens on this machine. The file is read as text and
+      // cleaned in memory; there is no upload endpoint to send it to.
+      const content = await file.text();
+      const result = processOfxContent(content, getEffectiveRules());
+      const processed: ProcessedFile = {
+        filename: file.name,
+        ...result,
+      };
 
-      // Rules are stored in this browser; sending them keeps processing stateless.
-      const rules = getRulesForUpload();
-      if (rules) {
-        formData.append("rules", JSON.stringify(rules));
-      }
-
-      const response = await fetch("/api/process-ofx", {
-        method: "POST",
-        body: formData,
-      });
-
-      const rawText = await response.text();
-      if (!rawText) {
-        throw new Error("The server returned an empty response.");
-      }
-
-      let data: unknown;
-      try {
-        data = JSON.parse(rawText);
-      } catch (parseError) {
-        console.error("Error parsing JSON:", parseError);
-        throw new Error(
-          "The server returned something that wasn’t valid JSON. Check the console for details."
-        );
-      }
-
-      if (!response.ok) {
-        const serverError =
-          typeof data === "object" && data !== null && "error" in data
-            ? String((data as { error: unknown }).error)
-            : `Request failed with status ${response.status}`;
-        throw new Error(serverError);
-      }
-
-      const processed = data as ProcessedFile;
       recordRuleUsage(processed.processingStats.ruleStats ?? []);
       // Prefer each transaction's original name so previews show what the raw
       // statement looked like, not an already-renamed result.
@@ -84,9 +58,9 @@ const FileUploader: React.FC<FileUploaderProps> = ({
       onProcessed(processed);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setError(message);
+      setError(`Couldn’t read that file — ${message}`);
       onError();
-      console.error("Error uploading file:", err);
+      console.error("Error processing file:", err);
     }
   };
 
@@ -112,7 +86,8 @@ const FileUploader: React.FC<FileUploaderProps> = ({
           Clean a statement for Money 99
         </h1>
         <p className="mt-1.5 text-[14px] text-gray-500">
-          Drop a .ofx, .qfx or .qbo file. It never leaves your browser.
+          Drop a .ofx, .qfx or .qbo file. It’s cleaned right here — your
+          statement never leaves your browser.
         </p>
       </div>
 

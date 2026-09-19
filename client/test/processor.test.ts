@@ -1,11 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import {
-  processOfxFile,
+  processOfxContent,
   validateFileType,
   computeNameEdits,
   getMerchantRules,
-  validateMerchantRules,
-} from '../src/utils/ofxProcessor';
+  isXmlFormat,
+  MAX_NAME_LENGTH,
+  MAX_MERCHANT_RULES,
+  MAX_RULE_PATTERN_LENGTH,
+} from '../src/ofx/processor';
 
 const sgmlFile = [
   'OFXHEADER:100',
@@ -53,8 +56,8 @@ const xmlFile = `<?xml version="1.0" standalone="no"?><OFX OFXHEADER="200" VERSI
 </BANKTRANLIST></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>`;
 
 describe('extractTransactions', () => {
-  it('extracts transactions from SGML-style OFX', async () => {
-    const result = await processOfxFile(Buffer.from(sgmlFile));
+  it('extracts transactions from SGML-style OFX', () => {
+    const result = processOfxContent(sgmlFile);
 
     expect(result.transactions).toHaveLength(2);
     expect(result.transactions[0]).toMatchObject({
@@ -70,8 +73,8 @@ describe('extractTransactions', () => {
     });
   });
 
-  it('extracts transactions from XML-style OFX with closing tags', async () => {
-    const result = await processOfxFile(Buffer.from(xmlFile));
+  it('extracts transactions from XML-style OFX with closing tags', () => {
+    const result = processOfxContent(xmlFile);
 
     expect(result.transactions).toHaveLength(1);
     expect(result.transactions[0]).toMatchObject({
@@ -83,9 +86,27 @@ describe('extractTransactions', () => {
   });
 });
 
+describe('format detection', () => {
+  it('flags XML-style files', () => {
+    expect(isXmlFormat(xmlFile)).toBe(true);
+    expect(processOfxContent(xmlFile).isXmlFormat).toBe(true);
+  });
+
+  // The heuristic is deliberately loose, matching the old server behaviour: any
+  // closing tag counts, and SGML files often include some.
+  it('flags SGML that contains closing tags as XML too', () => {
+    expect(processOfxContent(sgmlFile).isXmlFormat).toBe(true);
+  });
+
+  it('does not flag SGML with no closing tags at all', () => {
+    const bare = 'OFXHEADER:100\n<OFX><STMTTRN>\n<TRNTYPE>DEBIT\n<NAME>SHORT NAME';
+    expect(processOfxContent(bare).isXmlFormat).toBe(false);
+  });
+});
+
 describe('header conversion', () => {
-  it('converts modern XML OFX headers to the Money 99 SGML header', async () => {
-    const result = await processOfxFile(Buffer.from(xmlFile));
+  it('converts modern XML OFX headers to the Money 99 SGML header', () => {
+    const result = processOfxContent(xmlFile);
 
     expect(result.processedContent.startsWith('OFXHEADER:100')).toBe(true);
     expect(result.processedContent).not.toContain('<?xml version=');
@@ -93,8 +114,8 @@ describe('header conversion', () => {
 });
 
 describe('merchant replacements', () => {
-  it('standardizes Amazon, Costco, and Presto names', async () => {
-    const result = await processOfxFile(Buffer.from(sgmlFile));
+  it('standardizes Amazon, Costco, and Presto names', () => {
+    const result = processOfxContent(sgmlFile);
     const names = result.transactions.map((t) => t.name);
 
     expect(names).toContain('AMAZON');
@@ -102,36 +123,36 @@ describe('merchant replacements', () => {
     expect(names[0]).not.toContain('WHOLESALE');
   });
 
-  it('strips ampersands', async () => {
+  it('strips ampersands', () => {
     const content = 'OFXHEADER:100\n<OFX><STMTTRN>\n<TRNTYPE>DEBIT\n<NAME>AT&T STORE\n</STMTTRN></OFX>';
-    const result = await processOfxFile(Buffer.from(content));
+    const result = processOfxContent(content);
 
     expect(result.transactions[0].name).toBe('ATT STORE');
   });
 });
 
 describe('NAME truncation', () => {
-  it('truncates SGML-style names to 32 characters and records the change', async () => {
-    const result = await processOfxFile(Buffer.from(sgmlFile));
+  it('truncates SGML-style names to 32 characters and records the change', () => {
+    const result = processOfxContent(sgmlFile);
 
     expect(result.transactions[0].name).toBe('COSTCO LONGNAME THAT EXCEEDS THI');
-    expect(result.transactions[0].name).toHaveLength(32);
+    expect(result.transactions[0].name).toHaveLength(MAX_NAME_LENGTH);
     expect(result.processingStats.truncatedNames).toContainEqual({
       original: 'COSTCO LONGNAME THAT EXCEEDS THIRTY TWO CHARS',
       truncated: 'COSTCO LONGNAME THAT EXCEEDS THI',
     });
   });
 
-  it('truncates XML-style names to 32 characters', async () => {
-    const result = await processOfxFile(Buffer.from(xmlFile));
+  it('truncates XML-style names to 32 characters', () => {
+    const result = processOfxContent(xmlFile);
 
     expect(result.transactions[0].name).toBe('A VERY LONG MERCHANT NAME THAT I');
-    expect(result.transactions[0].name).toHaveLength(32);
+    expect(result.transactions[0].name).toHaveLength(MAX_NAME_LENGTH);
   });
 
-  it('leaves short names untouched', async () => {
+  it('leaves short names untouched', () => {
     const content = 'OFXHEADER:100\n<OFX><STMTTRN>\n<TRNTYPE>DEBIT\n<NAME>SHORT NAME\n</STMTTRN></OFX>';
-    const result = await processOfxFile(Buffer.from(content));
+    const result = processOfxContent(content);
 
     expect(result.transactions[0].name).toBe('SHORT NAME');
     expect(result.processingStats.truncatedNames).toHaveLength(0);
@@ -139,8 +160,8 @@ describe('NAME truncation', () => {
 });
 
 describe('unwanted tag removal', () => {
-  it('removes SIC and CORRECTFITID tags', async () => {
-    const result = await processOfxFile(Buffer.from(xmlFile));
+  it('removes SIC and CORRECTFITID tags', () => {
+    const result = processOfxContent(xmlFile);
 
     expect(result.processedContent).not.toContain('<SIC>');
     expect(result.processedContent).not.toContain('CORRECTFITID');
@@ -228,8 +249,8 @@ describe('computeNameEdits', () => {
 });
 
 describe('per-transaction edits', () => {
-  it('attaches the edit trail to the transaction it happened to', async () => {
-    const result = await processOfxFile(Buffer.from(sgmlFile));
+  it('attaches the edit trail to the transaction it happened to', () => {
+    const result = processOfxContent(sgmlFile);
 
     expect(result.transactions[0].edits?.map((e) => e.kind)).toEqual([
       'renamed',
@@ -246,10 +267,10 @@ describe('per-transaction edits', () => {
     });
   });
 
-  it('leaves untouched transactions without an edits key', async () => {
+  it('leaves untouched transactions without an edits key', () => {
     const content =
       'OFXHEADER:100\n<OFX><STMTTRN>\n<TRNTYPE>DEBIT\n<FITID>1\n<NAME>SHORT NAME\n</STMTTRN></OFX>';
-    const result = await processOfxFile(Buffer.from(content));
+    const result = processOfxContent(content);
 
     expect(result.transactions[0].name).toBe('SHORT NAME');
     expect(result.transactions[0].edits).toBeUndefined();
@@ -257,8 +278,8 @@ describe('per-transaction edits', () => {
 
   // Names are compared trimmed: a cut that lands on a space leaves the edit's
   // `to` with trailing whitespace that extraction strips back off.
-  it('agrees with the final name written into the processed file', async () => {
-    const result = await processOfxFile(Buffer.from(sgmlFile));
+  it('agrees with the final name written into the processed file', () => {
+    const result = processOfxContent(sgmlFile);
 
     for (const transaction of result.transactions) {
       const lastEdit = transaction.edits?.[transaction.edits.length - 1];
@@ -268,7 +289,7 @@ describe('per-transaction edits', () => {
     }
   });
 
-  it('keeps a shortening reversible when the cut lands on a space', async () => {
+  it('keeps a shortening reversible when the cut lands on a space', () => {
     const content = [
       'OFXHEADER:100',
       '<OFX><STMTTRN>',
@@ -277,7 +298,7 @@ describe('per-transaction edits', () => {
       '<NAME>HYDRO ONE PREAUTHORIZED PAYMENT AUG',
       '</STMTTRN></OFX>',
     ].join('\n');
-    const result = await processOfxFile(Buffer.from(content));
+    const result = processOfxContent(content);
     const edit = result.transactions[0].edits?.[0];
 
     expect(edit?.kind).toBe('shortened');
@@ -310,67 +331,19 @@ describe('getMerchantRules', () => {
   });
 });
 
-describe('validateMerchantRules', () => {
-  it('accepts a well-formed rule list', () => {
-    const rules = validateMerchantRules([
-      { pattern: 'AMZN MKTP US\\d+', replacement: 'AMAZON' },
-      { pattern: '^SQ \\*', replacement: 'SQUARE' },
-    ]);
-
-    expect(rules).toHaveLength(2);
-    expect(rules[0]).toEqual({ pattern: 'AMZN MKTP US\\d+', replacement: 'AMAZON' });
-  });
-
-  it('rejects a non-array', () => {
-    expect(() => validateMerchantRules({ pattern: 'X', replacement: 'Y' })).toThrow(/array/i);
-  });
-
-  it('rejects an entry without a pattern or replacement', () => {
-    expect(() => validateMerchantRules([{ replacement: 'X' }])).toThrow(/pattern/i);
-    expect(() => validateMerchantRules([{ pattern: 'X' }])).toThrow(/replacement/i);
-  });
-
-  it('rejects an invalid regular expression', () => {
-    expect(() => validateMerchantRules([{ pattern: '(unclosed', replacement: 'X' }])).toThrow(
-      /valid pattern/i
-    );
-  });
-
-  it('rejects an empty pattern', () => {
-    expect(() => validateMerchantRules([{ pattern: '', replacement: 'X' }])).toThrow(/pattern/i);
-  });
-
-  it('rejects an over-long pattern', () => {
-    const pattern = 'A'.repeat(201);
-
-    expect(() => validateMerchantRules([{ pattern, replacement: 'X' }])).toThrow(/too long/i);
-  });
-
-  it('rejects nested repetition that could hang processing', () => {
-    expect(() => validateMerchantRules([{ pattern: '(A+)+', replacement: 'X' }])).toThrow(
-      /nested repetition/i
-    );
-    expect(() => validateMerchantRules([{ pattern: '(\\w*)*X', replacement: 'Y' }])).toThrow(
-      /nested repetition/i
-    );
-  });
-});
-
 describe('custom merchant rules', () => {
   const fileWith = (name: string) =>
-    Buffer.from(
-      [
-        'OFXHEADER:100',
-        '<OFX><STMTTRN>',
-        '<TRNTYPE>DEBIT',
-        '<FITID>1',
-        `<NAME>${name}`,
-        '</STMTTRN></OFX>',
-      ].join('\n')
-    );
+    [
+      'OFXHEADER:100',
+      '<OFX><STMTTRN>',
+      '<TRNTYPE>DEBIT',
+      '<FITID>1',
+      `<NAME>${name}`,
+      '</STMTTRN></OFX>',
+    ].join('\n');
 
-  it('applies a caller-supplied rule instead of the defaults', async () => {
-    const result = await processOfxFile(fileWith('SQ *MY LOCAL CAFE'), [
+  it('applies a caller-supplied rule instead of the defaults', () => {
+    const result = processOfxContent(fileWith('SQ *MY LOCAL CAFE'), [
       { pattern: '^SQ \\*', replacement: 'SQUARE ' },
     ]);
 
@@ -381,8 +354,8 @@ describe('custom merchant rules', () => {
     });
   });
 
-  it('does not apply the defaults when a caller list is given', async () => {
-    const result = await processOfxFile(fileWith('AMZN MKTP US1234567 WWWAMAZONC'), [
+  it('does not apply the defaults when a caller list is given', () => {
+    const result = processOfxContent(fileWith('AMZN MKTP US1234567 WWWAMAZONC'), [
       { pattern: 'NOPE', replacement: 'NOPE' },
     ]);
 
@@ -390,8 +363,8 @@ describe('custom merchant rules', () => {
     expect(result.transactions[0].edits).toBeUndefined();
   });
 
-  it('only touches NAME values, never other tags', async () => {
-    const result = await processOfxFile(fileWith('GROCERY MART'), [
+  it('only touches NAME values, never other tags', () => {
+    const result = processOfxContent(fileWith('GROCERY MART'), [
       { pattern: 'DEBIT', replacement: 'HACKED' },
     ]);
 
@@ -400,8 +373,8 @@ describe('custom merchant rules', () => {
     expect(result.transactions[0].name).toBe('GROCERY MART');
   });
 
-  it('reports per-rule usage counts and examples', async () => {
-    const result = await processOfxFile(Buffer.from(sgmlFile), [
+  it('reports per-rule usage counts and examples', () => {
+    const result = processOfxContent(sgmlFile, [
       { pattern: 'COSTCO WHOLESALE W\\d+', replacement: 'COSTCO' },
       { pattern: 'NEVER MATCHES', replacement: 'X' },
     ]);
@@ -413,5 +386,67 @@ describe('custom merchant rules', () => {
         examples: ['COSTCO WHOLESALE W12345 LONGNAME THAT EXCEEDS THIRTY TWO CHARS'],
       },
     ]);
+  });
+});
+
+describe('rule limits', () => {
+  it('exposes limits the UI can rely on', () => {
+    expect(MAX_MERCHANT_RULES).toBeGreaterThan(0);
+    expect(MAX_RULE_PATTERN_LENGTH).toBeGreaterThan(0);
+  });
+});
+
+describe('text-mode rules', () => {
+  const fileWith = (name: string) =>
+    [
+      'OFXHEADER:100',
+      '<OFX><STMTTRN>',
+      '<TRNTYPE>DEBIT',
+      '<FITID>1',
+      `<NAME>${name}`,
+      '</STMTTRN></OFX>',
+    ].join('\n');
+
+  it('matches literally, including regex metacharacters', () => {
+    const result = processOfxContent(fileWith('SQ *MY LOCAL CAFE'), [
+      { pattern: 'SQ *MY', replacement: 'SQUARE', mode: 'text' },
+    ]);
+
+    expect(result.transactions[0].name).toBe('SQUARE LOCAL CAFE');
+  });
+
+  // Ampersands are stripped by a built-in fix that runs before rules, so no
+  // rule can match one. This is existing pipeline behaviour, not a regression.
+  it('cannot match an ampersand, because the built-in fix removes it first', () => {
+    const result = processOfxContent(fileWith('B&Q STORE'), [
+      { pattern: 'B&Q', replacement: 'B AND Q', mode: 'text' },
+    ]);
+
+    expect(result.transactions[0].name).toBe('BQ STORE');
+    expect(result.transactions[0].edits?.[0]).toMatchObject({ rule: '&' });
+  });
+
+  it('leaves pattern-mode rules interpreting metacharacters', () => {
+    const result = processOfxContent(fileWith('W12345 STORE'), [
+      { pattern: 'W\\d+', replacement: 'W', mode: 'pattern' },
+    ]);
+
+    expect(result.transactions[0].name).toBe('W STORE');
+  });
+
+  it('reports the pattern as the user typed it', () => {
+    const result = processOfxContent(fileWith('SQ *MY CAFE'), [
+      { pattern: 'SQ *MY', replacement: 'SQUARE', mode: 'text' },
+    ]);
+
+    expect(result.transactions[0].edits?.[0].rule).toBe('SQ *MY');
+  });
+
+  it('treats a missing mode as a pattern, for rules saved before modes existed', () => {
+    const result = processOfxContent(fileWith('W12345 STORE'), [
+      { pattern: 'W\\d+', replacement: 'W' },
+    ]);
+
+    expect(result.transactions[0].name).toBe('W STORE');
   });
 });

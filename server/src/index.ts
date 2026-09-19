@@ -1,121 +1,29 @@
 // server/src/index.ts
 import express from 'express';
-import cors from 'cors';
 import path from 'path';
-import multer from 'multer';
 import fs from 'fs';
-import { processOfxFile, validateFileType, getMerchantRules, validateMerchantRules, MAX_NAME_LENGTH, MAX_MERCHANT_RULES, MAX_RULE_PATTERN_LENGTH, MAX_RULE_REPLACEMENT_LENGTH } from './utils/ofxProcessor';
   
 const app = express();
 const PORT = process.env.PORT || 5000;
 const isDevelopment = process.env.NODE_ENV !== 'production';
-  
-// Middleware
-app.use(cors());
-app.use(express.json());
 
+// OFX cleaning happens entirely in the browser, so this server only serves
+// static files and a health check. There is intentionally no upload endpoint:
+// statement data never reaches it.
 app.get('/health', (_req, res) => {
   res.status(200).json({ status: 'ok' });
 });
 
-// The correction rules page reads these so it can never drift from the rules
-// the processor actually applies.
-app.get('/api/rules', (_req, res) => {
-  res.status(200).json({
-    merchantRules: getMerchantRules(),
-    maxNameLength: MAX_NAME_LENGTH,
-    removedTags: ['SIC', 'CORRECTFITID'],
-    limits: {
-      maxRules: MAX_MERCHANT_RULES,
-      maxPatternLength: MAX_RULE_PATTERN_LENGTH,
-      maxReplacementLength: MAX_RULE_REPLACEMENT_LENGTH,
-    },
+// Explicitly refuse API traffic rather than letting the SPA fallback answer it.
+// A browser holding a pre-migration bundle would otherwise POST a statement
+// here and have the bytes accepted (then ignored); this turns that into a clear
+// error so the client can tell the visitor to reload.
+app.use('/api', (_req, res) => {
+  res.status(410).json({
+    error: 'This app no longer accepts file uploads. Reload the page to get the current version — cleaning now happens in your browser.'
   });
 });
-  
-// Configure multer for file uploads
-const storage = multer.memoryStorage();
-const upload = multer({
-  storage,
-  limits: {
-    fileSize: 10 * 1024 * 1024,
-    files: 1,
-    // One non-file field: the optional JSON list of the client's merchant rules.
-    fields: 1,
-  },
-  fileFilter: (req, file, cb) => {
-    if (validateFileType(file.originalname)) {
-      cb(null, true);
-    } else {
-      cb(new Error('Invalid file type. Only OFX, QFX, and QBO files are allowed.') as any, false);
-    }
-  }
-});
-  
-// API routes
-app.post('/api/process-ofx', upload.single('file'), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
-    }
-    try {
-      const fileContent = req.file.buffer.toString('utf-8');
-      const isXmlFormat = fileContent.includes('</') || fileContent.includes('/>');
 
-      // The client sends its saved rules so processing stays stateless server-side.
-      // No rules field means "use the built-in defaults".
-      let merchantRules;
-      if (typeof req.body?.rules === 'string' && req.body.rules.length > 0) {
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(req.body.rules);
-        } catch {
-          return res.status(400).json({ error: 'Rules must be valid JSON.' });
-        }
-        try {
-          merchantRules = validateMerchantRules(parsed);
-        } catch (ruleError) {
-          return res.status(400).json({
-            error: ruleError instanceof Error ? ruleError.message : String(ruleError)
-          });
-        }
-      }
-
-      const result = await processOfxFile(req.file.buffer, merchantRules);
-      // Set appropriate headers
-      res.setHeader('Content-Type', 'application/json');
-      // Send the response
-      return res.json({
-        filename: req.file.originalname,
-        transactions: result.transactions,
-        processedContent: result.processedContent,
-        processingStats: result.processingStats,
-        isXmlFormat
-      });
-    } catch (processingError) {
-      console.error('Error processing file:', processingError);
-      return res.status(500).json({
-        error: 'Error processing file',
-        details: processingError instanceof Error ? processingError.message : String(processingError)
-      });
-    }
-  } catch (error) {
-    console.error('Unexpected error:', error);
-    return res.status(500).json({
-      error: 'Server error',
-      details: error instanceof Error ? error.message : String(error)
-    });
-  }
-});
-
-// Return JSON for upload errors (invalid file type, size limit) instead of Express HTML
-app.use((error: Error, _req: express.Request, res: express.Response, next: express.NextFunction) => {
-  if (res.headersSent) {
-    return next(error);
-  }
-  return res.status(400).json({ error: error.message });
-});
-  
 // Serve static files from the React app in production
 if (!isDevelopment) {
   // Try multiple possible paths for client build
@@ -141,6 +49,9 @@ if (!isDevelopment) {
     app.use((_req, res) => {
       const indexPath = path.join(clientBuildPath, 'index.html');
       if (fs.existsSync(indexPath)) {
+        // The entry document must not be cached, or a browser could keep
+        // running an old bundle against a new server.
+        res.setHeader('Cache-Control', 'no-cache');
         res.sendFile(indexPath);
       } else {
         res.status(404).send('index.html not found at ' + indexPath);

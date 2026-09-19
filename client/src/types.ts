@@ -48,27 +48,24 @@ export interface ProcessedFile {
   isXmlFormat: boolean;
 }
 
+/**
+ * How a rule's `pattern` should be read:
+ * - "text"    — literal find-and-replace; regex characters are escaped for you
+ * - "pattern" — a regular expression (advanced)
+ *
+ * Optional for backwards compatibility: rules saved before modes existed, and
+ * the built-ins, are patterns.
+ */
+export type RuleMode = "text" | "pattern";
+
 export interface MerchantRule {
   pattern: string;
   replacement: string;
+  mode?: RuleMode;
 }
 
 export interface RuleLimits {
   maxRules: number;
   maxPatternLength: number;
   maxReplacementLength: number;
-}
-
-/** One rule's match count from the last processed file. */
-export interface RuleUsageStat {
-  pattern: string;
-  count: number;
-  examples: string[];
-}
-
-export interface RulesResponse {
-  merchantRules: MerchantRule[];
-  maxNameLength: number;
-  removedTags: string[];
-  limits: RuleLimits;
 }
