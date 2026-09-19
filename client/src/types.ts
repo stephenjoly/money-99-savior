@@ -32,6 +32,12 @@ export interface ProcessingStats {
     tagName: string;
     count: number;
   }[];
+  /** Merchant rules that matched, with counts, so the rules page can show usage. */
+  ruleStats: {
+    pattern: string;
+    count: number;
+    examples: string[];
+  }[];
 }
 
 export interface ProcessedFile {
@@ -47,8 +53,22 @@ export interface MerchantRule {
   replacement: string;
 }
 
+export interface RuleLimits {
+  maxRules: number;
+  maxPatternLength: number;
+  maxReplacementLength: number;
+}
+
+/** One rule's match count from the last processed file. */
+export interface RuleUsageStat {
+  pattern: string;
+  count: number;
+  examples: string[];
+}
+
 export interface RulesResponse {
   merchantRules: MerchantRule[];
   maxNameLength: number;
   removedTags: string[];
+  limits: RuleLimits;
 }
