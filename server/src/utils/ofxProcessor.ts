@@ -17,29 +17,89 @@ const replacements: Record<string, string> = {
 // Money 99 mangles any NAME longer than this.
 export const MAX_NAME_LENGTH = 32;
 
-// Regex patterns for transaction descriptions
-const regexPatterns: [RegExp, string][] = [
-  [/AMZN MKTP [A-Z0-9]+ WWWAMAZONC/g, 'AMAZON'],
-  [/PRESTO FARE[A-Z0-9]+ TORONTO/g, 'PRESTO'],
-  [/PRESTO APPL[A-Z0-9]+ TORONTO/g, 'PRESTO'],
-  [/PAYPAL ALIPAYCANAD \d+/g, 'PAYPAL'],
-  [/COSTCO WHOLESALE W\d+/g, 'COSTCO'],
-  [/LCBORAO \d+ [A-Z]+ [A-Z]+/g, 'LCBO'],
-  [/SS LOBLAW [A-Z]+ [A-Z]+/g, 'LOBLAWS'],
-  [/AMAZON[A-Z0-9]+ AMAZONCA/g, 'AMAZON']
-];
-
-// The merchant rename rules, in a shape the client can render on the rules page.
+// Merchant rename rules. These are matched against NAME values only — never the
+// rest of the file — so a rule like "DEBIT" cannot rewrite a TRNTYPE. They are
+// the defaults; the client can send an edited list with an upload instead.
 export interface MerchantRule {
   pattern: string;
   replacement: string;
 }
 
+const DEFAULT_MERCHANT_RULES: MerchantRule[] = [
+  { pattern: 'AMZN MKTP [A-Z0-9]+ WWWAMAZONC', replacement: 'AMAZON' },
+  { pattern: 'PRESTO FARE[A-Z0-9]+ TORONTO', replacement: 'PRESTO' },
+  { pattern: 'PRESTO APPL[A-Z0-9]+ TORONTO', replacement: 'PRESTO' },
+  { pattern: 'PAYPAL ALIPAYCANAD \\d+', replacement: 'PAYPAL' },
+  { pattern: 'COSTCO WHOLESALE W\\d+', replacement: 'COSTCO' },
+  { pattern: 'LCBORAO \\d+ [A-Z]+ [A-Z]+', replacement: 'LCBO' },
+  { pattern: 'SS LOBLAW [A-Z]+ [A-Z]+', replacement: 'LOBLAWS' },
+  { pattern: 'AMAZON[A-Z0-9]+ AMAZONCA', replacement: 'AMAZON' }
+];
+
 export function getMerchantRules(): MerchantRule[] {
-  return regexPatterns.map(([pattern, replacement]) => ({
-    pattern: pattern.source,
-    replacement
-  }));
+  return DEFAULT_MERCHANT_RULES.map((rule) => ({ ...rule }));
+}
+
+export const MAX_MERCHANT_RULES = 50;
+export const MAX_RULE_PATTERN_LENGTH = 200;
+export const MAX_RULE_REPLACEMENT_LENGTH = 200;
+
+// Catastrophic backtracking needs a quantified group that itself contains a
+// quantifier, e.g. (A+)+ or (\w*)*. This is a guard, not a proof: it rejects the
+// common explosive shape, and the length caps above bound the rest.
+const NESTED_QUANTIFIER = /\((?:[^()\\]|\\.)*[*+{](?:[^()\\]|\\.)*\)\s*[*+{]/;
+
+// The upload endpoint accepts a full replacement list from the client, so every
+// field is validated before it is compiled into a RegExp.
+export function validateMerchantRules(input: unknown): MerchantRule[] {
+  if (!Array.isArray(input)) {
+    throw new Error('Merchant rules must be an array.');
+  }
+  if (input.length > MAX_MERCHANT_RULES) {
+    throw new Error(`Too many merchant rules (max ${MAX_MERCHANT_RULES}).`);
+  }
+
+  return input.map((entry, index) => {
+    const position = `Rule ${index + 1}`;
+    if (typeof entry !== 'object' || entry === null) {
+      throw new Error(`${position} must be an object.`);
+    }
+
+    const { pattern, replacement } = entry as { pattern?: unknown; replacement?: unknown };
+
+    if (typeof pattern !== 'string' || pattern.length === 0) {
+      throw new Error(`${position} needs a pattern.`);
+    }
+    if (pattern.length > MAX_RULE_PATTERN_LENGTH) {
+      throw new Error(`${position} pattern is too long (max ${MAX_RULE_PATTERN_LENGTH} characters).`);
+    }
+    if (typeof replacement !== 'string') {
+      throw new Error(`${position} needs a replacement.`);
+    }
+    if (replacement.length > MAX_RULE_REPLACEMENT_LENGTH) {
+      throw new Error(`${position} replacement is too long (max ${MAX_RULE_REPLACEMENT_LENGTH} characters).`);
+    }
+    if (NESTED_QUANTIFIER.test(pattern)) {
+      throw new Error(`${position} has nested repetition that could hang processing.`);
+    }
+
+    try {
+      new RegExp(pattern);
+    } catch {
+      throw new Error(`${position} isn't a valid pattern.`);
+    }
+
+    return { pattern, replacement };
+  });
+}
+
+interface CompiledRule {
+  rule: MerchantRule;
+  regex: RegExp;
+}
+
+function compileMerchantRules(rules: MerchantRule[]): CompiledRule[] {
+  return rules.map((rule) => ({ rule, regex: new RegExp(rule.pattern, 'g') }));
 }
 
 // A single change made to one transaction's name, in the order it was applied.
@@ -54,7 +114,10 @@ export interface TransactionEdit {
 // attributed to the transaction it happened to. The order here must match the
 // order processOfxFile applies them in: plain substitutions, merchant rules,
 // then truncation.
-export function computeNameEdits(originalName: string): {
+export function computeNameEdits(
+  originalName: string,
+  rules: MerchantRule[] = DEFAULT_MERCHANT_RULES
+): {
   edits: TransactionEdit[];
   finalName: string;
 } {
@@ -71,12 +134,12 @@ export function computeNameEdits(originalName: string): {
     }
   }
 
-  for (const [pattern, replacement] of regexPatterns) {
+  for (const { rule, regex } of compileMerchantRules(rules)) {
     // These are /g regexes; use replace rather than test so lastIndex is never
     // carried between calls.
-    const next = name.replace(pattern, replacement);
+    const next = name.replace(regex, rule.replacement);
     if (next !== name) {
-      edits.push({ kind: 'renamed', from: name, to: next, rule: pattern.source });
+      edits.push({ kind: 'renamed', from: name, to: next, rule: rule.pattern });
       name = next;
     }
   }
@@ -104,6 +167,12 @@ interface ProcessingStats {
   removedTags: {
     tagName: string;
     count: number;
+  }[];
+  /** Merchant rules that actually matched, with usage counts for the rules page. */
+  ruleStats: {
+    pattern: string;
+    count: number;
+    examples: string[];
   }[];
 }
 
@@ -319,6 +388,56 @@ function removeUnwantedTags(content: string): {
 }
 
 
+// Apply merchant rules to NAME values only. Returns per-rule usage counts so the
+// client can show which of its rules did anything.
+function applyMerchantRules(content: string, rules: MerchantRule[]): {
+  processedContent: string;
+  ruleStats: { pattern: string; count: number; examples: string[] }[];
+} {
+  const compiled = compileMerchantRules(rules);
+  const stats = compiled.map(() => ({ count: 0, examples: [] as string[] }));
+  const hasClosingTags = hasNameClosingTags(content);
+  const nameTagRegex = hasClosingTags
+    ? /(<NAME>\s*)(.*?)(\s*<\/NAME>)/gi
+    : /(<NAME>\s*)(.*?)(?=\n|<|$)/gmi;
+
+  const processedContent = content.replace(
+    nameTagRegex,
+    (fullMatch: string, prefix: string, rawValue: string, suffix: string) => {
+      const nameValue = rawValue.trim();
+      let next = nameValue;
+
+      compiled.forEach(({ rule, regex }, index) => {
+        const replaced = next.replace(regex, rule.replacement);
+        if (replaced !== next) {
+          stats[index].count += 1;
+          if (stats[index].examples.length < 3) {
+            stats[index].examples.push(nameValue);
+          }
+          next = replaced;
+        }
+      });
+
+      if (next === nameValue) {
+        return fullMatch;
+      }
+      return hasClosingTags ? `${prefix}${next}${suffix}` : `${prefix}${next}`;
+    }
+  );
+
+  return {
+    processedContent,
+    ruleStats: compiled
+      .map(({ rule }, index) => ({
+        pattern: rule.pattern,
+        count: stats[index].count,
+        examples: stats[index].examples
+      }))
+      .filter((stat) => stat.count > 0)
+  };
+}
+
+
 export interface ProcessedTransaction {
   type: string;
   date: string;
@@ -330,7 +449,10 @@ export interface ProcessedTransaction {
 }
 
 // Process OFX file
-export async function processOfxFile(fileBuffer: Buffer): Promise<{
+export async function processOfxFile(
+  fileBuffer: Buffer,
+  merchantRules: MerchantRule[] = DEFAULT_MERCHANT_RULES
+): Promise<{
   processedContent: string;
   transactions: ProcessedTransaction[];
   processingStats: ProcessingStats;
@@ -348,7 +470,8 @@ export async function processOfxFile(fileBuffer: Buffer): Promise<{
   const processingStats: ProcessingStats = {
     replacements: [],
     truncatedNames: [],
-    removedTags: []
+    removedTags: [],
+    ruleStats: []
   };
   
   // Apply replacements
@@ -365,18 +488,10 @@ export async function processOfxFile(fileBuffer: Buffer): Promise<{
     }
   }
   
-  // Apply regex patterns
-  for (const [pattern, replacement] of regexPatterns) {
-    const matches = content.match(pattern);
-    if (matches && matches.length > 0) {
-      processingStats.replacements.push({
-        pattern: pattern.toString(),
-        count: matches.length,
-        examples: matches.slice(0, 3) // Keep up to 3 examples
-      });
-      content = content.replace(pattern, replacement);
-    }
-  }
+  // Apply merchant rules to NAME values, using the caller's list if given.
+  const ruleResult = applyMerchantRules(content, merchantRules);
+  content = ruleResult.processedContent;
+  processingStats.ruleStats = ruleResult.ruleStats;
   
   // Truncate NAME fields
   const nameResult = truncateNameFields(content);
@@ -410,7 +525,7 @@ export async function processOfxFile(fileBuffer: Buffer): Promise<{
       return;
     }
 
-    const { edits } = computeNameEdits(original.name);
+    const { edits } = computeNameEdits(original.name, merchantRules);
     if (edits.length > 0) {
       transaction.edits = edits;
     }

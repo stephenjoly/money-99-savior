@@ -1,6 +1,7 @@
 // client/src/components/FileUploader.tsx
 import React, { useRef, useState } from "react";
 import type { ProcessedFile } from "../types";
+import { getRulesForUpload, recordRuleUsage, rememberNames } from "../ruleStore";
 
 interface FileUploaderProps {
   onStart: (filename: string) => void;
@@ -37,6 +38,12 @@ const FileUploader: React.FC<FileUploaderProps> = ({
       const formData = new FormData();
       formData.append("file", file);
 
+      // Rules are stored in this browser; sending them keeps processing stateless.
+      const rules = getRulesForUpload();
+      if (rules) {
+        formData.append("rules", JSON.stringify(rules));
+      }
+
       const response = await fetch("/api/process-ofx", {
         method: "POST",
         body: formData,
@@ -65,7 +72,16 @@ const FileUploader: React.FC<FileUploaderProps> = ({
         throw new Error(serverError);
       }
 
-      onProcessed(data as ProcessedFile);
+      const processed = data as ProcessedFile;
+      recordRuleUsage(processed.processingStats.ruleStats ?? []);
+      // Prefer each transaction's original name so previews show what the raw
+      // statement looked like, not an already-renamed result.
+      rememberNames(
+        processed.transactions.map(
+          (transaction) => transaction.edits?.[0]?.from ?? transaction.name
+        )
+      );
+      onProcessed(processed);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
