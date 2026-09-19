@@ -395,3 +395,58 @@ describe('rule limits', () => {
     expect(MAX_RULE_PATTERN_LENGTH).toBeGreaterThan(0);
   });
 });
+
+describe('text-mode rules', () => {
+  const fileWith = (name: string) =>
+    [
+      'OFXHEADER:100',
+      '<OFX><STMTTRN>',
+      '<TRNTYPE>DEBIT',
+      '<FITID>1',
+      `<NAME>${name}`,
+      '</STMTTRN></OFX>',
+    ].join('\n');
+
+  it('matches literally, including regex metacharacters', () => {
+    const result = processOfxContent(fileWith('SQ *MY LOCAL CAFE'), [
+      { pattern: 'SQ *MY', replacement: 'SQUARE', mode: 'text' },
+    ]);
+
+    expect(result.transactions[0].name).toBe('SQUARE LOCAL CAFE');
+  });
+
+  // Ampersands are stripped by a built-in fix that runs before rules, so no
+  // rule can match one. This is existing pipeline behaviour, not a regression.
+  it('cannot match an ampersand, because the built-in fix removes it first', () => {
+    const result = processOfxContent(fileWith('B&Q STORE'), [
+      { pattern: 'B&Q', replacement: 'B AND Q', mode: 'text' },
+    ]);
+
+    expect(result.transactions[0].name).toBe('BQ STORE');
+    expect(result.transactions[0].edits?.[0]).toMatchObject({ rule: '&' });
+  });
+
+  it('leaves pattern-mode rules interpreting metacharacters', () => {
+    const result = processOfxContent(fileWith('W12345 STORE'), [
+      { pattern: 'W\\d+', replacement: 'W', mode: 'pattern' },
+    ]);
+
+    expect(result.transactions[0].name).toBe('W STORE');
+  });
+
+  it('reports the pattern as the user typed it', () => {
+    const result = processOfxContent(fileWith('SQ *MY CAFE'), [
+      { pattern: 'SQ *MY', replacement: 'SQUARE', mode: 'text' },
+    ]);
+
+    expect(result.transactions[0].edits?.[0].rule).toBe('SQ *MY');
+  });
+
+  it('treats a missing mode as a pattern, for rules saved before modes existed', () => {
+    const result = processOfxContent(fileWith('W12345 STORE'), [
+      { pattern: 'W\\d+', replacement: 'W' },
+    ]);
+
+    expect(result.transactions[0].name).toBe('W STORE');
+  });
+});

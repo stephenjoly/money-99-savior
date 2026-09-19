@@ -21,7 +21,7 @@ describe('validateRule', () => {
   });
 
   it('rejects an empty pattern', () => {
-    expect(validateRule('', 'X')).toMatch(/pattern/i);
+    expect(validateRule('', 'X')).toMatch(/something to match/i);
   });
 
   it('rejects an invalid regular expression', () => {
@@ -35,6 +35,16 @@ describe('validateRule', () => {
   it('rejects nested repetition that could freeze the page', () => {
     expect(validateRule('(A+)+', 'X')).toMatch(/could freeze/i);
     expect(validateRule('(\\w*)*X', 'Y')).toMatch(/could freeze/i);
+  });
+
+  it('accepts anything as literal text, since it gets escaped', () => {
+    expect(validateRule('(unclosed', 'X', DEFAULT_LIMITS, 'text')).toBeNull();
+    expect(validateRule('(A+)+', 'X', DEFAULT_LIMITS, 'text')).toBeNull();
+    expect(validateRule('SQ *MY CAFE', 'X', DEFAULT_LIMITS, 'text')).toBeNull();
+  });
+
+  it('still enforces length limits in text mode', () => {
+    expect(validateRule('A'.repeat(201), 'X', DEFAULT_LIMITS, 'text')).toMatch(/limited/i);
   });
 });
 
@@ -53,6 +63,12 @@ describe('previewRule', () => {
 
   it('returns null for an invalid pattern', () => {
     expect(previewRule('(unclosed', 'X', ['SQ *CAFE'])).toBeNull();
+  });
+
+  it('previews text-mode rules literally', () => {
+    const previews = previewRule('SQ *MY', 'SQUARE', ['SQ *MY CAFE'], 'text');
+
+    expect(previews).toEqual([{ from: 'SQ *MY CAFE', to: 'SQUARE CAFE' }]);
   });
 });
 
@@ -90,6 +106,36 @@ describe('parseImportedRules', () => {
     }));
 
     expect(() => parseImportedRules(JSON.stringify(many))).toThrow(/Too many/i);
+  });
+
+  it('preserves an explicit mode', () => {
+    const rules = parseImportedRules(
+      JSON.stringify([{ pattern: 'SQ *MY', replacement: 'SQUARE ', mode: 'text' }])
+    );
+
+    expect(rules[0]).toEqual({ pattern: 'SQ *MY', replacement: 'SQUARE ', mode: 'text' });
+  });
+
+  it('treats a file with no mode as patterns, for pre-mode exports', () => {
+    const rules = parseImportedRules(
+      JSON.stringify([{ pattern: 'W\\d+', replacement: 'W' }])
+    );
+
+    expect(rules[0].mode).toBeUndefined();
+  });
+
+  it('rejects an unknown mode', () => {
+    expect(() =>
+      parseImportedRules(JSON.stringify([{ pattern: 'X', replacement: 'Y', mode: 'glob' }]))
+    ).toThrow(/unknown mode/i);
+  });
+
+  it('accepts a text-mode rule whose pattern is not valid regex', () => {
+    const rules = parseImportedRules(
+      JSON.stringify([{ pattern: '(unclosed', replacement: 'X', mode: 'text' }])
+    );
+
+    expect(rules).toHaveLength(1);
   });
 });
 
