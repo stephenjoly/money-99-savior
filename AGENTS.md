@@ -28,7 +28,7 @@ The release path is:
 - **Feature PRs target `staging`.** **Release PRs promote `staging` to `main`.** Never commit
   directly to `staging` or `main`.
 - Dokploy is the only deployment owner. Pushing to a branch triggers its deploy automatically:
-  - `staging` branch → **Money 99 Staging** (`money-99-savior.staging.stephenjoly.net`)
+  - `staging` branch → **Money 99 Staging** (`staging-money-99-savior.stephenjoly.net`)
   - `main` branch → **Money 99 Production** (`money-99-savior.stephenjoly.net`)
 - Pull requests get disposable preview deployments (collaborator-only, max 3).
 - GitHub Actions only validates the Docker build; it does not deploy.
