@@ -16,6 +16,8 @@ export const MOTION = {
   gapMs: 30,
   /** Receipt arriving. */
   enterMs: 360,
+  /** Clean ↔ rules page handoff. */
+  pageMs: 280,
   /** Per-row delay in the transaction table. */
   rowStaggerMs: 22,
   /** Rows past this index all share the last delay, so long files still settle quickly. */

@@ -5,6 +5,7 @@ import ProcessingBeat from "./components/ProcessingBeat";
 import ResultReceipt from "./components/ResultReceipt";
 import Navbar from "./components/Navbar";
 import RulesPage from "./pages/RulesPage";
+import RouteTransition from "./components/RouteTransition";
 import { useRoute } from "./routes";
 import { EASE_IN, MOTION, usePrefersReducedMotion } from "./motion";
 import { processStatement } from "./processStatement";
@@ -209,19 +210,21 @@ const App: React.FC = () => {
       <Navbar route={route} onNavigate={navigate} />
 
       <div className="flex-1">
-        {route === "/rules" ? (
-          <RulesPage />
-        ) : (
-          <CleanFilePage
-            session={session}
-            onStart={handleStart}
-            onProcessed={handleProcessed}
-            onError={handleError}
-            onClear={handleClear}
-            onReprocess={handleReprocess}
-            onNavigate={navigate}
-          />
-        )}
+        <RouteTransition key={route} route={route}>
+          {route === "/rules" ? (
+            <RulesPage />
+          ) : (
+            <CleanFilePage
+              session={session}
+              onStart={handleStart}
+              onProcessed={handleProcessed}
+              onError={handleError}
+              onClear={handleClear}
+              onReprocess={handleReprocess}
+              onNavigate={navigate}
+            />
+          )}
+        </RouteTransition>
       </div>
 
       <footer className="py-8 text-center text-xs text-gray-400">

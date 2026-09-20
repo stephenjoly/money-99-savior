@@ -45,8 +45,8 @@ const Navbar: React.FC<NavbarProps> = ({ route, onNavigate }) => (
               }}
               className={
                 active
-                  ? "px-3 py-1.5 rounded-md font-medium bg-gray-100 text-gray-900"
-                  : "px-3 py-1.5 rounded-md text-gray-500 hover:text-gray-900"
+                  ? "px-3 py-1.5 rounded-md font-medium bg-gray-100 text-gray-900 transition-colors duration-200"
+                  : "px-3 py-1.5 rounded-md text-gray-500 hover:text-gray-900 transition-colors duration-200"
               }
             >
               {link.label}

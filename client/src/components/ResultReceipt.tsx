@@ -138,8 +138,22 @@ const ResultReceipt: React.FC<ResultReceiptProps> = ({
               <button
                 type="button"
                 onClick={onReprocess}
-                className="text-[13px] font-medium text-gray-700 hover:text-gray-900 px-3 py-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50"
+                className="reapply-attention text-[13px] font-semibold text-white bg-sky-700 px-3.5 py-2 rounded-lg hover:bg-sky-800 flex items-center gap-2 shadow-sm"
               >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M21 12a9 9 0 1 1-2.6-6.3" />
+                  <path d="M21 3v6h-6" />
+                </svg>
                 Reapply rules
               </button>
             )}
