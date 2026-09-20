@@ -204,6 +204,23 @@ const RulesPage: React.FC = () => {
           </span>
         </div>
 
+        {customized && (
+          <div
+            role="status"
+            className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-950"
+          >
+            <p className="font-medium">
+              Export your rules if you care about keeping them.
+            </p>
+            <p className="mt-1 text-amber-900/80">
+              There is no login, so custom corrections only live in this
+              browser. Clear site data, switch devices, or use private browsing
+              and they are gone — use Export as JSON, then Import rules… to
+              bring them back.
+            </p>
+          </div>
+        )}
+
         <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
           <table className="w-full text-[13.5px]">
               <thead>
@@ -367,9 +384,11 @@ const RulesPage: React.FC = () => {
           {notice && !draftError && <p className="text-gray-400">{notice}</p>}
           {!draftError && !notice && (
             <p className="text-gray-400">
-              {rememberedNames.length > 0
-                ? "Rules are applied in your browser, so nothing you edit is sent anywhere."
-                : "Your rules are stored in this browser. Preview examples will appear here after you clean a file."}
+              {customized
+                ? "Custom rules stay in this browser only. Export a JSON backup if you need them elsewhere."
+                : rememberedNames.length > 0
+                  ? "Rules are applied in your browser, so nothing you edit is sent anywhere."
+                  : "Your rules are stored in this browser. Preview examples will appear here after you clean a file."}
             </p>
           )}
         </div>
