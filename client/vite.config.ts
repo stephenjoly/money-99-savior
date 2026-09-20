@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 // client/vite.config.ts
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
@@ -5,13 +6,8 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   plugins: [react(), tailwindcss(),],
-  server: {
-    proxy: {
-      '/api': {
-        target: 'http://localhost:5000', // Your backend server address
-        changeOrigin: true,
-        secure: false,
-      },
-    },
+  test: {
+    environment: 'jsdom',
+    include: ['test/**/*.test.ts'],
   },
 });

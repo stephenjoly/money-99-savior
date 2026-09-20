@@ -11,7 +11,12 @@ Money 99 Savior processes OFX (Open Financial Exchange) files to ensure compatib
 ## Features
 
 - **OFX File Processing**: Cleans and standardizes OFX files for maximum compatibility with Money 99
+- **Runs Entirely in Your Browser**: Your statement is never uploaded. The server only serves the page; there is no file upload endpoint
 - **Transaction Viewing**: View your financial transactions in a clean, organized interface
+- **Correction Summary**: A receipt after every upload showing exactly what was changed and why
+- **Per-Transaction Edits**: See which transactions were renamed or shortened, with before/after names, and filter to just the changed ones
+- **Correction Rules Page**: Browse and edit the merchant rename rules, with live preview, import/export, and a "used" count (`/rules`). After editing, Reapply rules appears on the open statement so you can refresh it without picking the file again
+- **Plain Text or Pattern Rules**: Match exact text with no regex knowledge needed, or switch to patterns for variants like store numbers and alternate spellings, with a built-in cheat sheet
 - **Name Standardization**: Automatically standardizes merchant names for better categorization
 - **Character Limit Handling**: Truncates transaction names to 32 characters to meet MS Money 99 requirements
 - **Tag Cleanup**: Removes unnecessary tags that can cause issues with legacy software
@@ -25,15 +30,24 @@ Money 99 Savior handles several common issues with OFX files that prevent them f
 - Truncates transaction names that exceed 32 characters (a common limitation in Money 99)
 - Removes problematic tags like `<SIC>` and `<CORRECTFITID>`
 - Standardizes common merchant names for better readability
+- Lets you add, edit, and delete your own merchant rename rules; they live in your browser's local storage
 - Handles both XML-style OFX (with closing tags) and SGML-style OFX (without closing tags)
 - Replaces certain common patterns that occur when merchants with multiple locations add unit store numbers to credit card network names (e.g., replaces "Costco 2341238" with "Costco")
 
+### Privacy and architecture
+
+All OFX parsing, cleaning, and rule matching happen in the browser. There is no
+upload endpoint — the server is a static file host with a `/health` check. A
+statement never leaves the machine it was opened on, and rule matching runs
+locally too.
+
 ## Usage
 
-1. Upload your OFX file through the web interface
-2. Money 99 Savior will process and clean the file
-3. View your transactions in the browser
-4. Download the cleaned OFX file for use with Microsoft Money 99
+1. Open the app and choose your OFX file — it is read locally in your browser
+2. Money 99 Savior cleans the file in the page; nothing is sent to a server
+3. Review the receipt: a summary of corrections, plus the transaction list with changed entries highlighted
+4. Optionally edit correction rules — when they differ from what cleaned the open file, use **Reapply rules** to refresh the receipt without re-choosing the file
+5. Download the cleaned OFX file for use with Microsoft Money 99
 
 ## Compatibility
 
@@ -60,4 +74,4 @@ Thanks to all the users who have tested Money 99 Savior and provided feedback to
 
 ---
 
-**Note**: Money 99 Savior does not store your financial data.
+**Note**: Money 99 Savior does not store your financial data. Files are opened and cleaned in your browser and are never uploaded.

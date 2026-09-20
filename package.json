@@ -9,7 +9,7 @@
     "build": "npm run build:client && npm run build:server",
     "build:client": "cd client && npm run build",
     "build:server": "cd server && npm run build",
-    "test": "cd server && npm test",
+    "test": "cd client && npm test",
     "lint": "cd client && npm run lint",
     "typecheck": "npm run typecheck:client && npm run typecheck:server",
     "typecheck:client": "cd client && npx tsc -b",

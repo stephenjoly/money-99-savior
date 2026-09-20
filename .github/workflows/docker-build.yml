@@ -26,8 +26,8 @@ jobs:
       - name: Install client dependencies
         run: npm ci --prefix client
 
-      - name: Run server tests
-        run: npm test --prefix server
+      - name: Run tests
+        run: npm test --prefix client
 
       - name: Typecheck client and server
         run: |

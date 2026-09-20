@@ -23,7 +23,7 @@ RUN cd client && \
   APP_VERSION="${APP_VERSION:-v$(date -u +%Y.%m.%d.%H%M)}" && \
   VITE_APP_VERSION="$APP_VERSION" npm run build
 
-# Build backend
+# Build backend (static host + health check)
 RUN cd server && npm run build
 
 # Production stage

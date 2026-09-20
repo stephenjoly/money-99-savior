@@ -1,1 +1,60 @@
 @import "tailwindcss";
+
+/* The sweep on the in-flight progress bar. */
+.sweep {
+  position: relative;
+  overflow: hidden;
+}
+
+.sweep::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--color-gray-900),
+    transparent
+  );
+  animation: sweep 1.05s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+@keyframes sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(350%);
+  }
+}
+
+/* One soft pulse when Reapply rules appears after a rules edit. */
+@keyframes reapply-attention {
+  0% {
+    box-shadow: 0 0 0 0 rgb(3 105 161 / 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgb(3 105 161 / 0);
+  }
+  100% {
+    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  }
+}
+
+.reapply-attention {
+  animation: reapply-attention 0.9s ease-out 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sweep::after {
+    animation: none;
+    width: 100%;
+    background: var(--color-gray-900);
+    opacity: 0.25;
+  }
+
+  .reapply-attention {
+    animation: none;
+  }
+}

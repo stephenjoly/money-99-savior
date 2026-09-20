@@ -1,76 +1,315 @@
 // client/src/App.tsx
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import FileUploader from "./components/FileUploader";
-import TransactionList from "./components/TransactionList";
-import ProcessingInfo from "./components/ProcessingInfo";
-import FileFormatInfo from "./components/FileFormatInfo";
+import ProcessingBeat from "./components/ProcessingBeat";
+import ResultReceipt from "./components/ResultReceipt";
+import Navbar from "./components/Navbar";
+import RulesPage from "./pages/RulesPage";
+import RouteTransition from "./components/RouteTransition";
+import { useRoute } from "./routes";
+import {
+  EASE_IN,
+  EASE_OUT,
+  MOTION,
+  useHasEntered,
+  usePrefersReducedMotion,
+} from "./motion";
+import { processStatement } from "./processStatement";
+import { getEffectiveRulesFingerprint } from "./ruleStore";
 import type { ProcessedFile } from "./types";
-import ActionButtons from "./components/ActionButtons";
 
-const App: React.FC = () => {
-  const [processedFile, setProcessedFile] = useState<ProcessedFile | null>(
-    null
-  );
-  const [loading, setLoading] = useState(false);
+/**
+ * idle      — waiting for a file
+ * working   — request in flight; the uploader stays put so a failure can simply
+ *             re-enable it instead of animating back
+ * leaving   — file processed, uploader collapsing away
+ * result    — receipt only
+ * returning — start over: receipt collapsing away before the uploader returns
+ */
+type Phase = "idle" | "working" | "leaving" | "result" | "returning";
 
-  // Function to clear all data and reset the state
-  const clearData = () => {
-    setProcessedFile(null);
-  };
+/**
+ * Session for the clean-a-file flow. Lives on App so navigating to /rules and
+ * back does not drop the uploaded statement or its cleaned result.
+ */
+interface CleanSession {
+  phase: Phase;
+  filename: string;
+  /** Raw statement text kept so rules can be reapplied without re-choosing a file. */
+  sourceContent: string | null;
+  processedFile: ProcessedFile | null;
+  /** Fingerprint of the rules that produced `processedFile`. */
+  appliedRulesFingerprint: string | null;
+  reprocessError: string | null;
+  /** Remount key so the uploader can animate back in on start over. */
+  uploaderKey: number;
+  animateUploaderIn: boolean;
+}
 
-  const appVersion = import.meta.env.VITE_APP_VERSION ?? "vDev";
+const INITIAL_SESSION: CleanSession = {
+  phase: "idle",
+  filename: "",
+  sourceContent: null,
+  processedFile: null,
+  appliedRulesFingerprint: null,
+  reprocessError: null,
+  uploaderKey: 0,
+  animateUploaderIn: false,
+};
+
+const UploaderPane: React.FC<{
+  phase: Phase;
+  filename: string;
+  animateIn: boolean;
+  reduced: boolean;
+  onStart: (name: string) => void;
+  onProcessed: (
+    data: ProcessedFile,
+    sourceContent: string,
+    rulesFingerprint: string
+  ) => void;
+  onError: () => void;
+}> = ({ phase, filename, animateIn, reduced, onStart, onProcessed, onError }) => {
+  const entered = useHasEntered();
+  const leaving = phase === "leaving";
+
+  let style: React.CSSProperties;
+  if (leaving) {
+    style = reduced
+      ? { opacity: 0, transition: "opacity 120ms linear" }
+      : {
+          opacity: 0,
+          transform: "translateY(26px) scale(.90)",
+          transformOrigin: "top center",
+          transition: `opacity ${MOTION.exitMs}ms ${EASE_IN}, transform ${MOTION.exitMs}ms ${EASE_IN}`,
+        };
+  } else if (animateIn) {
+    style = reduced
+      ? {
+          opacity: entered ? 1 : 0,
+          transition: "opacity 120ms linear",
+        }
+      : {
+          opacity: entered ? 1 : 0,
+          transform: entered ? "none" : "translateY(26px) scale(.90)",
+          transformOrigin: "top center",
+          transition: `opacity ${MOTION.enterMs}ms ${EASE_OUT}, transform ${MOTION.enterMs}ms ${EASE_OUT}`,
+        };
+  } else {
+    style = reduced
+      ? { opacity: phase === "working" ? 0.38 : 1 }
+      : {
+          opacity: phase === "working" ? 0.38 : 1,
+          transition: "opacity 160ms ease",
+        };
+  }
 
   return (
-    <div className="min-h-screen bg-gray-100 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-4xl mx-auto">
-        <div className="text-center mb-10">
-          <h1 className="text-3xl font-extrabold text-gray-900">
-            OFX File Processor
-          </h1>
-          <p className="mt-3 text-lg text-gray-500">
-            Upload, process, and download financial statement files
-          </p>
-        </div>
+    <div style={style} aria-hidden={leaving || undefined}>
+      <FileUploader
+        onStart={onStart}
+        onProcessed={onProcessed}
+        onError={onError}
+        disabled={phase !== "idle"}
+      />
+      {phase === "working" && <ProcessingBeat filename={filename} />}
+    </div>
+  );
+};
 
-        <FileUploader
-          onFileProcessed={setProcessedFile}
-          setLoading={setLoading}
+const CleanFilePage: React.FC<{
+  session: CleanSession;
+  onStart: (filename: string) => void;
+  onProcessed: (
+    data: ProcessedFile,
+    sourceContent: string,
+    rulesFingerprint: string
+  ) => void;
+  onError: () => void;
+  onClear: () => void;
+  onReprocess: () => void;
+  onNavigate: (route: "/" | "/rules") => void;
+}> = ({
+  session,
+  onStart,
+  onProcessed,
+  onError,
+  onClear,
+  onReprocess,
+  onNavigate,
+}) => {
+  const {
+    phase,
+    filename,
+    processedFile,
+    appliedRulesFingerprint,
+    reprocessError,
+    uploaderKey,
+    animateUploaderIn,
+  } = session;
+  const reduced = usePrefersReducedMotion();
+
+  const rulesChanged =
+    appliedRulesFingerprint !== null &&
+    appliedRulesFingerprint !== getEffectiveRulesFingerprint();
+
+  const showUploader = phase !== "result" && phase !== "returning";
+  const showReceipt =
+    (phase === "result" || phase === "returning") && processedFile !== null;
+
+  return (
+    <main className="max-w-5xl mx-auto px-5 py-10">
+      {showUploader && (
+        <UploaderPane
+          key={uploaderKey}
+          phase={phase}
+          filename={filename}
+          animateIn={animateUploaderIn}
+          reduced={reduced}
+          onStart={onStart}
+          onProcessed={onProcessed}
+          onError={onError}
         />
+      )}
 
-        {loading && (
-          <div className="mt-8 text-center">
-            <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
-            <p className="mt-2 text-gray-600">Processing file...</p>
-          </div>
-        )}
+      {showReceipt && processedFile && (
+        <ResultReceipt
+          file={processedFile}
+          exiting={phase === "returning"}
+          onClear={onClear}
+          onReprocess={onReprocess}
+          rulesChanged={rulesChanged}
+          reprocessError={reprocessError}
+          onNavigate={onNavigate}
+        />
+      )}
+    </main>
+  );
+};
 
-        {processedFile && (
-          <>
-            <FileFormatInfo
-              filename={processedFile.filename}
-              isXmlFormat={processedFile.isXmlFormat}
+const App: React.FC = () => {
+  const [route, navigate] = useRoute();
+  const appVersion = import.meta.env.VITE_APP_VERSION ?? "vDev";
+  const [session, setSession] = useState<CleanSession>(INITIAL_SESSION);
+  const reduced = usePrefersReducedMotion();
+  const exitTimer = useRef<number | undefined>(undefined);
+
+  useEffect(() => () => window.clearTimeout(exitTimer.current), []);
+
+  const handleStart = useCallback((name: string) => {
+    setSession((prev) => ({
+      ...prev,
+      filename: name,
+      phase: "working",
+      animateUploaderIn: false,
+      reprocessError: null,
+    }));
+  }, []);
+
+  const handleProcessed = useCallback(
+    (
+      data: ProcessedFile,
+      sourceContent: string,
+      rulesFingerprint: string
+    ) => {
+      setSession((prev) => ({
+        ...prev,
+        processedFile: data,
+        sourceContent,
+        filename: data.filename,
+        appliedRulesFingerprint: rulesFingerprint,
+        phase: "leaving",
+        reprocessError: null,
+      }));
+      exitTimer.current = window.setTimeout(
+        () =>
+          setSession((prev) =>
+            prev.phase === "leaving" ? { ...prev, phase: "result" } : prev
+          ),
+        reduced ? 0 : MOTION.exitMs + MOTION.gapMs
+      );
+    },
+    [reduced]
+  );
+
+  const handleError = useCallback(() => {
+    setSession((prev) => ({
+      ...prev,
+      phase: "idle",
+      filename: "",
+      sourceContent: null,
+      appliedRulesFingerprint: null,
+    }));
+  }, []);
+
+  const handleClear = useCallback(() => {
+    setSession((prev) => {
+      if (prev.phase !== "result") return prev;
+      window.clearTimeout(exitTimer.current);
+      exitTimer.current = window.setTimeout(() => {
+        setSession((current) => ({
+          ...INITIAL_SESSION,
+          uploaderKey: current.uploaderKey + 1,
+          animateUploaderIn: true,
+          phase: "idle",
+        }));
+      }, reduced ? 0 : MOTION.exitMs + MOTION.gapMs);
+      return { ...prev, phase: "returning" };
+    });
+  }, [reduced]);
+
+  const handleReprocess = useCallback(() => {
+    setSession((prev) => {
+      if (!prev.sourceContent || !prev.filename || prev.phase !== "result") {
+        return prev;
+      }
+
+      try {
+        const { processed, rulesFingerprint } = processStatement(
+          prev.filename,
+          prev.sourceContent
+        );
+        return {
+          ...prev,
+          processedFile: processed,
+          appliedRulesFingerprint: rulesFingerprint,
+          reprocessError: null,
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return {
+          ...prev,
+          reprocessError: `Couldn’t reapply rules — ${message}`,
+        };
+      }
+    });
+  }, []);
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      <Navbar route={route} onNavigate={navigate} />
+
+      <div className="flex-1">
+        <RouteTransition key={route} route={route}>
+          {route === "/rules" ? (
+            <RulesPage />
+          ) : (
+            <CleanFilePage
+              session={session}
+              onStart={handleStart}
+              onProcessed={handleProcessed}
+              onError={handleError}
+              onClear={handleClear}
+              onReprocess={handleReprocess}
+              onNavigate={navigate}
             />
-            <ProcessingInfo processingStats={processedFile.processingStats} />
-            {/* <div className="mt-2 flex justify-center">
-              <FileDownloader
-                processedContent={processedFile.processedContent}
-                originalFilename={processedFile.filename}
-              />
-            </div> */}
-            <div className="mt-8 flex justify-center">
-              <ActionButtons
-                processedContent={processedFile.processedContent}
-                originalFilename={processedFile.filename}
-                onClear={clearData}
-              />
-            </div>
-            <TransactionList transactions={processedFile.transactions} />
-          </>
-        )}
-        <div className="mt-12 text-center text-xs text-gray-400">
-          {appVersion}
-        </div>
+          )}
+        </RouteTransition>
       </div>
+
+      <footer className="py-8 text-center text-xs text-gray-400">
+        {appVersion}
+      </footer>
     </div>
   );
 };

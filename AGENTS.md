@@ -12,8 +12,9 @@
 ## Project context
 
 - `README.md`: what the app does, features, compatibility.
-- `server/src/utils/ofxProcessor.ts`: all OFX cleaning logic (replacements, truncation, tag removal).
-- `server/src/index.ts`: HTTP server, upload endpoint, static serving.
+- `client/src/ofx/processor.ts`: all OFX cleaning logic (replacements, truncation, tag removal). Runs in the browser.
+- `client/src/ruleStore.ts`: browser-local rule storage and validation.
+- `server/src/index.ts`: static host + `/health` only; there is intentionally no upload endpoint.
 - `client/src/`: React UI.
 - `Dockerfile`: multi-stage build; Dokploy builds this on deploy.
 - `docker-compose.yml`: local container run.
@@ -27,7 +28,7 @@ The release path is:
 - **Feature PRs target `staging`.** **Release PRs promote `staging` to `main`.** Never commit
   directly to `staging` or `main`.
 - Dokploy is the only deployment owner. Pushing to a branch triggers its deploy automatically:
-  - `staging` branch → **Money 99 Staging** (`money-99-savior.staging.stephenjoly.net`)
+  - `staging` branch → **Money 99 Staging** (`staging-money-99-savior.stephenjoly.net`)
   - `main` branch → **Money 99 Production** (`money-99-savior.stephenjoly.net`)
 - Pull requests get disposable preview deployments (collaborator-only, max 3).
 - GitHub Actions only validates the Docker build; it does not deploy.
@@ -50,11 +51,10 @@ The release path is:
 ## Validation
 
 - Build the image before pushing: `docker build -t money-99-savior:local .`.
-- Smoke-test the container: run it, then check `/health` and process a sample OFX file through
-  `POST /api/process-ofx`.
-- Run the checks before pushing: `npm test` (server vitest suite), `npm run typecheck`, and
-  `npm run lint`. CI runs all three before the Docker build.
-- Add or update tests in `server/test/` when changing OFX processing behavior.
+- Smoke-test the container: run it and check `/health`; then verify a file in the browser, since processing happens client-side.
+- Run the checks before pushing: `npm test` (client vitest suite), `npm run typecheck`, and `npm run lint`. CI runs all three before the Docker build.
+- Add or update tests in `client/test/` when changing OFX processing behavior.
+- OFX processing must stay dependency-free and browser-only: never add a server upload path or send statement data over the network.
 - Report failures and environment limits honestly rather than claiming success.
 
 ## Handoff and retirement
