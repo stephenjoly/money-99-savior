@@ -16,6 +16,10 @@ interface ResultReceiptProps {
   file: ProcessedFile;
   exiting?: boolean;
   onClear: () => void;
+  onReprocess: () => void;
+  /** True when correction rules changed since this receipt was produced. */
+  rulesChanged: boolean;
+  reprocessError: string | null;
   onNavigate: (route: Route) => void;
 }
 
@@ -40,6 +44,9 @@ const ResultReceipt: React.FC<ResultReceiptProps> = ({
   file,
   exiting = false,
   onClear,
+  onReprocess,
+  rulesChanged,
+  reprocessError,
   onNavigate,
 }) => {
   const summary = summarize(file);
@@ -140,7 +147,7 @@ const ResultReceipt: React.FC<ResultReceiptProps> = ({
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap justify-end">
             <button
               type="button"
               onClick={onClear}
@@ -149,10 +156,35 @@ const ResultReceipt: React.FC<ResultReceiptProps> = ({
             >
               Start over
             </button>
+            {rulesChanged && (
+              <button
+                type="button"
+                onClick={onReprocess}
+                disabled={exiting}
+                className="reapply-attention text-[13px] font-semibold text-white bg-sky-700 px-3.5 py-2 rounded-lg hover:bg-sky-800 flex items-center gap-2 shadow-sm disabled:opacity-50"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M21 12a9 9 0 1 1-2.6-6.3" />
+                  <path d="M21 3v6h-6" />
+                </svg>
+                Reapply rules
+              </button>
+            )}
             <button
               type="button"
               onClick={() => downloadProcessed(file)}
-              className="text-[13px] font-semibold bg-gray-900 text-white px-4 py-2 rounded-lg hover:bg-black flex items-center gap-2"
+              disabled={exiting}
+              className="text-[13px] font-semibold bg-gray-900 text-white px-4 py-2 rounded-lg hover:bg-black flex items-center gap-2 disabled:opacity-50"
             >
               <svg
                 width="15"
@@ -171,6 +203,15 @@ const ResultReceipt: React.FC<ResultReceiptProps> = ({
             </button>
           </div>
         </div>
+
+        {rulesChanged && reprocessError && (
+          <div
+            role="alert"
+            className="border-t border-rose-200 bg-rose-50 px-5 py-3 text-[13px] text-rose-800"
+          >
+            {reprocessError}
+          </div>
+        )}
 
         {summary.totalCorrections > 0 && (
           <div className="border-t border-gray-200 bg-gray-50/70 px-5 py-3 text-[13px] text-gray-600 flex flex-wrap gap-x-5 gap-y-1">
@@ -203,7 +244,10 @@ const ResultReceipt: React.FC<ResultReceiptProps> = ({
         >
           correction rules
         </a>
-        . This file was never uploaded — it was cleaned in your browser.
+        {rulesChanged
+          ? ". Rules changed since this file was cleaned — use Reapply rules to update it without picking the file again."
+          : "."}{" "}
+        This file was never uploaded — it was cleaned in your browser.
       </p>
     </div>
   );
