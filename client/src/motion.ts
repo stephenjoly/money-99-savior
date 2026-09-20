@@ -2,19 +2,19 @@
 import { useEffect, useState } from "react";
 
 /**
- * Timings for the upload -> receipt handoff, in one place so the choreography
+ * Timings for the upload ↔ receipt handoff, in one place so the choreography
  * can be tuned without hunting through components.
  *
- * The uploader leaves before the receipt arrives rather than crossing over it,
+ * One side leaves before the other arrives rather than crossing over,
  * which keeps both elements in normal document flow — no absolute positioning,
- * no height jump.
+ * no height jump. Start over reverses the same sequence.
  */
 export const MOTION = {
-  /** Uploader collapsing away once the file has processed. */
+  /** Uploader (or receipt, on start over) collapsing away. */
   exitMs: 220,
-  /** Beat between the uploader leaving and the receipt arriving. */
+  /** Beat between one side leaving and the other arriving. */
   gapMs: 30,
-  /** Receipt arriving. */
+  /** Receipt arriving (or uploader returning on start over). */
   enterMs: 360,
   /** Per-row delay in the transaction table. */
   rowStaggerMs: 22,
