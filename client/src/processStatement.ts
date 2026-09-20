@@ -1,7 +1,18 @@
 // client/src/processStatement.ts
 import type { ProcessedFile } from "./types";
-import { getEffectiveRules, recordRuleUsage, rememberNames } from "./ruleStore";
+import {
+  fingerprintRules,
+  getEffectiveRules,
+  recordRuleUsage,
+  rememberNames,
+} from "./ruleStore";
 import { processOfxContent } from "./ofx/processor";
+
+export interface ProcessStatementResult {
+  processed: ProcessedFile;
+  /** Fingerprint of the rules that produced `processed`. */
+  rulesFingerprint: string;
+}
 
 /**
  * Run the browser-side cleaner on already-read statement text and update the
@@ -11,8 +22,9 @@ import { processOfxContent } from "./ofx/processor";
 export function processStatement(
   filename: string,
   content: string
-): ProcessedFile {
-  const result = processOfxContent(content, getEffectiveRules());
+): ProcessStatementResult {
+  const rules = getEffectiveRules();
+  const result = processOfxContent(content, rules);
   const processed: ProcessedFile = {
     filename,
     ...result,
@@ -27,5 +39,8 @@ export function processStatement(
     )
   );
 
-  return processed;
+  return {
+    processed,
+    rulesFingerprint: fingerprintRules(rules),
+  };
 }

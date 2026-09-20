@@ -10,6 +10,8 @@ interface ResultReceiptProps {
   file: ProcessedFile;
   onClear: () => void;
   onReprocess: () => void;
+  /** True when correction rules changed since this receipt was produced. */
+  rulesChanged: boolean;
   reprocessError: string | null;
   onNavigate: (route: Route) => void;
 }
@@ -35,6 +37,7 @@ const ResultReceipt: React.FC<ResultReceiptProps> = ({
   file,
   onClear,
   onReprocess,
+  rulesChanged,
   reprocessError,
   onNavigate,
 }) => {
@@ -131,13 +134,15 @@ const ResultReceipt: React.FC<ResultReceiptProps> = ({
             >
               Start over
             </button>
-            <button
-              type="button"
-              onClick={onReprocess}
-              className="text-[13px] font-medium text-gray-700 hover:text-gray-900 px-3 py-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50"
-            >
-              Reapply rules
-            </button>
+            {rulesChanged && (
+              <button
+                type="button"
+                onClick={onReprocess}
+                className="text-[13px] font-medium text-gray-700 hover:text-gray-900 px-3 py-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50"
+              >
+                Reapply rules
+              </button>
+            )}
             <button
               type="button"
               onClick={() => downloadProcessed(file)}
@@ -161,7 +166,7 @@ const ResultReceipt: React.FC<ResultReceiptProps> = ({
           </div>
         </div>
 
-        {reprocessError && (
+        {rulesChanged && reprocessError && (
           <div
             role="alert"
             className="border-t border-rose-200 bg-rose-50 px-5 py-3 text-[13px] text-rose-800"
@@ -201,7 +206,9 @@ const ResultReceipt: React.FC<ResultReceiptProps> = ({
         >
           correction rules
         </a>
-        . Changed a rule? Use Reapply rules — no need to pick the file again.
+        {rulesChanged
+          ? ". Rules changed since this file was cleaned — use Reapply rules to update it without picking the file again."
+          : "."}{" "}
         This file was never uploaded — it was cleaned in your browser.
       </p>
     </div>

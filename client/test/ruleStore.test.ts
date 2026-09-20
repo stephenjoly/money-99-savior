@@ -8,7 +8,9 @@ import {
 import { DEFAULT_MERCHANT_RULES } from '../src/ofx/processor';
 import {
   clearStoredRules,
+  fingerprintRules,
   getEffectiveRules,
+  getEffectiveRulesFingerprint,
   loadStoredRules,
   saveStoredRules,
   getRuleUsage,
@@ -162,5 +164,23 @@ describe('stored rules', () => {
     recordRuleUsage([{ pattern: '^SQ \\*', count: 1 }]);
 
     expect(getRuleUsage()['^SQ \\*']).toBe(3);
+  });
+
+  it('fingerprints rules so edits are detectable', () => {
+    const a = [{ pattern: 'COSTCO', replacement: 'Costco', mode: 'text' as const }];
+    const b = [{ pattern: 'COSTCO', replacement: 'Costco Wholesale', mode: 'text' as const }];
+
+    expect(fingerprintRules(a)).toBe(fingerprintRules(a));
+    expect(fingerprintRules(a)).not.toBe(fingerprintRules(b));
+    // Missing mode is treated as pattern, matching built-ins / older exports.
+    expect(fingerprintRules([{ pattern: 'X', replacement: 'Y' }])).toBe(
+      fingerprintRules([{ pattern: 'X', replacement: 'Y', mode: 'pattern' }])
+    );
+  });
+
+  it('changes the effective fingerprint after saving custom rules', () => {
+    const before = getEffectiveRulesFingerprint();
+    saveStoredRules([{ pattern: '^SQ \\*', replacement: 'SQUARE ' }]);
+    expect(getEffectiveRulesFingerprint()).not.toBe(before);
   });
 });

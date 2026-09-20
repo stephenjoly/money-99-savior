@@ -6,7 +6,11 @@ import { processStatement } from "../processStatement";
 
 interface FileUploaderProps {
   onStart: (filename: string) => void;
-  onProcessed: (data: ProcessedFile, sourceContent: string) => void;
+  onProcessed: (
+    data: ProcessedFile,
+    sourceContent: string,
+    rulesFingerprint: string
+  ) => void;
   onError: () => void;
   disabled: boolean;
 }
@@ -41,8 +45,11 @@ const FileUploader: React.FC<FileUploaderProps> = ({
       // Everything below happens on this machine. The file is read as text and
       // cleaned in memory; there is no upload endpoint to send it to.
       const content = await file.text();
-      const processed = processStatement(file.name, content);
-      onProcessed(processed, content);
+      const { processed, rulesFingerprint } = processStatement(
+        file.name,
+        content
+      );
+      onProcessed(processed, content, rulesFingerprint);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(`Couldn’t read that file — ${message}`);

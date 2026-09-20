@@ -75,6 +75,25 @@ export function getEffectiveRules(): MerchantRule[] {
   return stored.customized ? stored.rules : DEFAULT_MERCHANT_RULES;
 }
 
+/**
+ * Stable identity for a rule list so we can tell whether the receipt is still
+ * current after the visitor edits correction rules. Mode defaults to "pattern"
+ * to match how built-ins and pre-mode exports are treated.
+ */
+export function fingerprintRules(rules: MerchantRule[]): string {
+  return JSON.stringify(
+    rules.map((rule) => ({
+      pattern: rule.pattern,
+      replacement: rule.replacement,
+      mode: rule.mode ?? "pattern",
+    }))
+  );
+}
+
+export function getEffectiveRulesFingerprint(): string {
+  return fingerprintRules(getEffectiveRules());
+}
+
 export function getRuleUsage(): Record<string, number> {
   return readJSON<Record<string, number>>(USAGE_KEY) ?? {};
 }

@@ -8,6 +8,7 @@ import RulesPage from "./pages/RulesPage";
 import { useRoute } from "./routes";
 import { EASE_IN, MOTION, usePrefersReducedMotion } from "./motion";
 import { processStatement } from "./processStatement";
+import { getEffectiveRulesFingerprint } from "./ruleStore";
 import type { ProcessedFile } from "./types";
 
 /**
@@ -29,6 +30,8 @@ interface CleanSession {
   /** Raw statement text kept so rules can be reapplied without re-choosing a file. */
   sourceContent: string | null;
   processedFile: ProcessedFile | null;
+  /** Fingerprint of the rules that produced `processedFile`. */
+  appliedRulesFingerprint: string | null;
   reprocessError: string | null;
 }
 
@@ -37,13 +40,18 @@ const INITIAL_SESSION: CleanSession = {
   filename: "",
   sourceContent: null,
   processedFile: null,
+  appliedRulesFingerprint: null,
   reprocessError: null,
 };
 
 const CleanFilePage: React.FC<{
   session: CleanSession;
   onStart: (filename: string) => void;
-  onProcessed: (data: ProcessedFile, sourceContent: string) => void;
+  onProcessed: (
+    data: ProcessedFile,
+    sourceContent: string,
+    rulesFingerprint: string
+  ) => void;
   onError: () => void;
   onClear: () => void;
   onReprocess: () => void;
@@ -57,8 +65,18 @@ const CleanFilePage: React.FC<{
   onReprocess,
   onNavigate,
 }) => {
-  const { phase, filename, processedFile, reprocessError } = session;
+  const {
+    phase,
+    filename,
+    processedFile,
+    appliedRulesFingerprint,
+    reprocessError,
+  } = session;
   const reduced = usePrefersReducedMotion();
+
+  const rulesChanged =
+    appliedRulesFingerprint !== null &&
+    appliedRulesFingerprint !== getEffectiveRulesFingerprint();
 
   const leaving = phase === "leaving";
   const uploaderStyle: React.CSSProperties = reduced
@@ -91,6 +109,7 @@ const CleanFilePage: React.FC<{
           file={processedFile}
           onClear={onClear}
           onReprocess={onReprocess}
+          rulesChanged={rulesChanged}
           reprocessError={reprocessError}
           onNavigate={onNavigate}
         />
@@ -118,12 +137,17 @@ const App: React.FC = () => {
   }, []);
 
   const handleProcessed = useCallback(
-    (data: ProcessedFile, sourceContent: string) => {
+    (
+      data: ProcessedFile,
+      sourceContent: string,
+      rulesFingerprint: string
+    ) => {
       setSession((prev) => ({
         ...prev,
         processedFile: data,
         sourceContent,
         filename: data.filename,
+        appliedRulesFingerprint: rulesFingerprint,
         phase: "leaving",
         reprocessError: null,
       }));
@@ -144,6 +168,7 @@ const App: React.FC = () => {
       phase: "idle",
       filename: "",
       sourceContent: null,
+      appliedRulesFingerprint: null,
     }));
   }, []);
 
@@ -159,10 +184,14 @@ const App: React.FC = () => {
       }
 
       try {
-        const processed = processStatement(prev.filename, prev.sourceContent);
+        const { processed, rulesFingerprint } = processStatement(
+          prev.filename,
+          prev.sourceContent
+        );
         return {
           ...prev,
           processedFile: processed,
+          appliedRulesFingerprint: rulesFingerprint,
           reprocessError: null,
         };
       } catch (err) {
