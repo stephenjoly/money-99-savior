@@ -3,11 +3,18 @@ import React, { useEffect, useRef } from "react";
 import type { ProcessedFile } from "../types";
 import type { Route } from "../routes";
 import { summarize } from "../summary";
-import { EASE_OUT, MOTION, useHasEntered, usePrefersReducedMotion } from "../motion";
+import {
+  EASE_IN,
+  EASE_OUT,
+  MOTION,
+  useHasEntered,
+  usePrefersReducedMotion,
+} from "../motion";
 import TransactionList from "./TransactionList";
 
 interface ResultReceiptProps {
   file: ProcessedFile;
+  exiting?: boolean;
   onClear: () => void;
   onReprocess: () => void;
   /** True when correction rules changed since this receipt was produced. */
@@ -35,6 +42,7 @@ function downloadProcessed(file: ProcessedFile) {
 
 const ResultReceipt: React.FC<ResultReceiptProps> = ({
   file,
+  exiting = false,
   onClear,
   onReprocess,
   rulesChanged,
@@ -52,25 +60,38 @@ const ResultReceipt: React.FC<ResultReceiptProps> = ({
     headingRef.current?.focus();
   }, []);
 
-  const shellStyle: React.CSSProperties = reduced
-    ? { opacity: entered ? 1 : 0, transition: "opacity 120ms linear" }
-    : {
-        opacity: entered ? 1 : 0,
-        transform: entered ? "scale(1)" : "scale(.985)",
-        transition: `opacity ${MOTION.enterMs}ms ${EASE_OUT}, transform ${MOTION.enterMs}ms ${EASE_OUT}`,
-      };
+  const shellStyle: React.CSSProperties = (() => {
+    if (exiting) {
+      return reduced
+        ? { opacity: 0, transition: "opacity 120ms linear" }
+        : {
+            opacity: 0,
+            transform: "translateY(26px) scale(.90)",
+            transformOrigin: "top center",
+            transition: `opacity ${MOTION.exitMs}ms ${EASE_IN}, transform ${MOTION.exitMs}ms ${EASE_IN}`,
+          };
+    }
+    return reduced
+      ? { opacity: entered ? 1 : 0, transition: "opacity 120ms linear" }
+      : {
+          opacity: entered ? 1 : 0,
+          transform: entered ? "scale(1)" : "scale(.985)",
+          transition: `opacity ${MOTION.enterMs}ms ${EASE_OUT}, transform ${MOTION.enterMs}ms ${EASE_OUT}`,
+        };
+  })();
 
   // The verdict card unrolls from its own top edge — the file becoming the result.
-  const verdictStyle: React.CSSProperties = reduced
-    ? {}
-    : {
-        transformOrigin: "top center",
-        opacity: entered ? 1 : 0,
-        transform: entered
-          ? "scaleY(1) translateY(0)"
-          : "scaleY(.55) translateY(-10px)",
-        transition: `opacity ${MOTION.enterMs}ms ${EASE_OUT}, transform ${MOTION.enterMs}ms ${EASE_OUT}`,
-      };
+  const verdictStyle: React.CSSProperties = (() => {
+    if (exiting || reduced) return {};
+    return {
+      transformOrigin: "top center",
+      opacity: entered ? 1 : 0,
+      transform: entered
+        ? "scaleY(1) translateY(0)"
+        : "scaleY(.55) translateY(-10px)",
+      transition: `opacity ${MOTION.enterMs}ms ${EASE_OUT}, transform ${MOTION.enterMs}ms ${EASE_OUT}`,
+    };
+  })();
 
   const counts: { value: number; label: string }[] = [
     { value: summary.renamed, label: "merchant names standardized" },
@@ -130,7 +151,8 @@ const ResultReceipt: React.FC<ResultReceiptProps> = ({
             <button
               type="button"
               onClick={onClear}
-              className="text-[13px] font-medium text-gray-600 hover:text-gray-900 px-3 py-2 rounded-lg"
+              disabled={exiting}
+              className="text-[13px] font-medium text-gray-600 hover:text-gray-900 px-3 py-2 rounded-lg disabled:opacity-50"
             >
               Start over
             </button>
@@ -138,7 +160,8 @@ const ResultReceipt: React.FC<ResultReceiptProps> = ({
               <button
                 type="button"
                 onClick={onReprocess}
-                className="reapply-attention text-[13px] font-semibold text-white bg-sky-700 px-3.5 py-2 rounded-lg hover:bg-sky-800 flex items-center gap-2 shadow-sm"
+                disabled={exiting}
+                className="reapply-attention text-[13px] font-semibold text-white bg-sky-700 px-3.5 py-2 rounded-lg hover:bg-sky-800 flex items-center gap-2 shadow-sm disabled:opacity-50"
               >
                 <svg
                   width="14"
@@ -160,7 +183,8 @@ const ResultReceipt: React.FC<ResultReceiptProps> = ({
             <button
               type="button"
               onClick={() => downloadProcessed(file)}
-              className="text-[13px] font-semibold bg-gray-900 text-white px-4 py-2 rounded-lg hover:bg-black flex items-center gap-2"
+              disabled={exiting}
+              className="text-[13px] font-semibold bg-gray-900 text-white px-4 py-2 rounded-lg hover:bg-black flex items-center gap-2 disabled:opacity-50"
             >
               <svg
                 width="15"
