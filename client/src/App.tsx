@@ -7,6 +7,7 @@ import Navbar from "./components/Navbar";
 import RulesPage from "./pages/RulesPage";
 import { useRoute } from "./routes";
 import { EASE_IN, MOTION, usePrefersReducedMotion } from "./motion";
+import { processStatement } from "./processStatement";
 import type { ProcessedFile } from "./types";
 
 /**
@@ -18,45 +19,46 @@ import type { ProcessedFile } from "./types";
  */
 type Phase = "idle" | "working" | "leaving" | "result";
 
+/**
+ * Session for the clean-a-file flow. Lives on App so navigating to /rules and
+ * back does not drop the uploaded statement or its cleaned result.
+ */
+interface CleanSession {
+  phase: Phase;
+  filename: string;
+  /** Raw statement text kept so rules can be reapplied without re-choosing a file. */
+  sourceContent: string | null;
+  processedFile: ProcessedFile | null;
+  reprocessError: string | null;
+}
+
+const INITIAL_SESSION: CleanSession = {
+  phase: "idle",
+  filename: "",
+  sourceContent: null,
+  processedFile: null,
+  reprocessError: null,
+};
+
 const CleanFilePage: React.FC<{
+  session: CleanSession;
+  onStart: (filename: string) => void;
+  onProcessed: (data: ProcessedFile, sourceContent: string) => void;
+  onError: () => void;
+  onClear: () => void;
+  onReprocess: () => void;
   onNavigate: (route: "/" | "/rules") => void;
-}> = ({ onNavigate }) => {
-  const [phase, setPhase] = useState<Phase>("idle");
-  const [filename, setFilename] = useState("");
-  const [processedFile, setProcessedFile] = useState<ProcessedFile | null>(null);
+}> = ({
+  session,
+  onStart,
+  onProcessed,
+  onError,
+  onClear,
+  onReprocess,
+  onNavigate,
+}) => {
+  const { phase, filename, processedFile, reprocessError } = session;
   const reduced = usePrefersReducedMotion();
-  const exitTimer = useRef<number | undefined>(undefined);
-
-  useEffect(() => () => window.clearTimeout(exitTimer.current), []);
-
-  const handleStart = useCallback((name: string) => {
-    setFilename(name);
-    setPhase("working");
-  }, []);
-
-  const handleProcessed = useCallback(
-    (data: ProcessedFile) => {
-      setProcessedFile(data);
-      setPhase("leaving");
-      exitTimer.current = window.setTimeout(
-        () => setPhase("result"),
-        reduced ? 0 : MOTION.exitMs + MOTION.gapMs
-      );
-    },
-    [reduced]
-  );
-
-  const handleError = useCallback(() => {
-    setPhase("idle");
-    setFilename("");
-  }, []);
-
-  const handleClear = useCallback(() => {
-    window.clearTimeout(exitTimer.current);
-    setProcessedFile(null);
-    setFilename("");
-    setPhase("idle");
-  }, []);
 
   const leaving = phase === "leaving";
   const uploaderStyle: React.CSSProperties = reduced
@@ -75,9 +77,9 @@ const CleanFilePage: React.FC<{
       {phase !== "result" && (
         <div style={uploaderStyle} aria-hidden={leaving || undefined}>
           <FileUploader
-            onStart={handleStart}
-            onProcessed={handleProcessed}
-            onError={handleError}
+            onStart={onStart}
+            onProcessed={onProcessed}
+            onError={onError}
             disabled={phase !== "idle"}
           />
           {phase === "working" && <ProcessingBeat filename={filename} />}
@@ -87,7 +89,9 @@ const CleanFilePage: React.FC<{
       {phase === "result" && processedFile && (
         <ResultReceipt
           file={processedFile}
-          onClear={handleClear}
+          onClear={onClear}
+          onReprocess={onReprocess}
+          reprocessError={reprocessError}
           onNavigate={onNavigate}
         />
       )}
@@ -98,6 +102,78 @@ const CleanFilePage: React.FC<{
 const App: React.FC = () => {
   const [route, navigate] = useRoute();
   const appVersion = import.meta.env.VITE_APP_VERSION ?? "vDev";
+  const [session, setSession] = useState<CleanSession>(INITIAL_SESSION);
+  const reduced = usePrefersReducedMotion();
+  const exitTimer = useRef<number | undefined>(undefined);
+
+  useEffect(() => () => window.clearTimeout(exitTimer.current), []);
+
+  const handleStart = useCallback((name: string) => {
+    setSession((prev) => ({
+      ...prev,
+      filename: name,
+      phase: "working",
+      reprocessError: null,
+    }));
+  }, []);
+
+  const handleProcessed = useCallback(
+    (data: ProcessedFile, sourceContent: string) => {
+      setSession((prev) => ({
+        ...prev,
+        processedFile: data,
+        sourceContent,
+        filename: data.filename,
+        phase: "leaving",
+        reprocessError: null,
+      }));
+      exitTimer.current = window.setTimeout(
+        () =>
+          setSession((prev) =>
+            prev.phase === "leaving" ? { ...prev, phase: "result" } : prev
+          ),
+        reduced ? 0 : MOTION.exitMs + MOTION.gapMs
+      );
+    },
+    [reduced]
+  );
+
+  const handleError = useCallback(() => {
+    setSession((prev) => ({
+      ...prev,
+      phase: "idle",
+      filename: "",
+      sourceContent: null,
+    }));
+  }, []);
+
+  const handleClear = useCallback(() => {
+    window.clearTimeout(exitTimer.current);
+    setSession(INITIAL_SESSION);
+  }, []);
+
+  const handleReprocess = useCallback(() => {
+    setSession((prev) => {
+      if (!prev.sourceContent || !prev.filename) {
+        return prev;
+      }
+
+      try {
+        const processed = processStatement(prev.filename, prev.sourceContent);
+        return {
+          ...prev,
+          processedFile: processed,
+          reprocessError: null,
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return {
+          ...prev,
+          reprocessError: `Couldn’t reapply rules — ${message}`,
+        };
+      }
+    });
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -107,7 +183,15 @@ const App: React.FC = () => {
         {route === "/rules" ? (
           <RulesPage />
         ) : (
-          <CleanFilePage onNavigate={navigate} />
+          <CleanFilePage
+            session={session}
+            onStart={handleStart}
+            onProcessed={handleProcessed}
+            onError={handleError}
+            onClear={handleClear}
+            onReprocess={handleReprocess}
+            onNavigate={navigate}
+          />
         )}
       </div>
 

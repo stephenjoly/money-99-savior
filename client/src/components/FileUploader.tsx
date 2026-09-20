@@ -1,12 +1,12 @@
 // client/src/components/FileUploader.tsx
 import React, { useRef, useState } from "react";
 import type { ProcessedFile } from "../types";
-import { getEffectiveRules, recordRuleUsage, rememberNames } from "../ruleStore";
-import { MAX_FILE_SIZE, processOfxContent, validateFileType } from "../ofx/processor";
+import { MAX_FILE_SIZE, validateFileType } from "../ofx/processor";
+import { processStatement } from "../processStatement";
 
 interface FileUploaderProps {
   onStart: (filename: string) => void;
-  onProcessed: (data: ProcessedFile) => void;
+  onProcessed: (data: ProcessedFile, sourceContent: string) => void;
   onError: () => void;
   disabled: boolean;
 }
@@ -41,21 +41,8 @@ const FileUploader: React.FC<FileUploaderProps> = ({
       // Everything below happens on this machine. The file is read as text and
       // cleaned in memory; there is no upload endpoint to send it to.
       const content = await file.text();
-      const result = processOfxContent(content, getEffectiveRules());
-      const processed: ProcessedFile = {
-        filename: file.name,
-        ...result,
-      };
-
-      recordRuleUsage(processed.processingStats.ruleStats ?? []);
-      // Prefer each transaction's original name so previews show what the raw
-      // statement looked like, not an already-renamed result.
-      rememberNames(
-        processed.transactions.map(
-          (transaction) => transaction.edits?.[0]?.from ?? transaction.name
-        )
-      );
-      onProcessed(processed);
+      const processed = processStatement(file.name, content);
+      onProcessed(processed, content);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(`Couldn’t read that file — ${message}`);

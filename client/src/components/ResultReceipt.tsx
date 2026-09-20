@@ -9,6 +9,8 @@ import TransactionList from "./TransactionList";
 interface ResultReceiptProps {
   file: ProcessedFile;
   onClear: () => void;
+  onReprocess: () => void;
+  reprocessError: string | null;
   onNavigate: (route: Route) => void;
 }
 
@@ -32,6 +34,8 @@ function downloadProcessed(file: ProcessedFile) {
 const ResultReceipt: React.FC<ResultReceiptProps> = ({
   file,
   onClear,
+  onReprocess,
+  reprocessError,
   onNavigate,
 }) => {
   const summary = summarize(file);
@@ -119,13 +123,20 @@ const ResultReceipt: React.FC<ResultReceiptProps> = ({
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap justify-end">
             <button
               type="button"
               onClick={onClear}
               className="text-[13px] font-medium text-gray-600 hover:text-gray-900 px-3 py-2 rounded-lg"
             >
               Start over
+            </button>
+            <button
+              type="button"
+              onClick={onReprocess}
+              className="text-[13px] font-medium text-gray-700 hover:text-gray-900 px-3 py-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50"
+            >
+              Reapply rules
             </button>
             <button
               type="button"
@@ -149,6 +160,15 @@ const ResultReceipt: React.FC<ResultReceiptProps> = ({
             </button>
           </div>
         </div>
+
+        {reprocessError && (
+          <div
+            role="alert"
+            className="border-t border-rose-200 bg-rose-50 px-5 py-3 text-[13px] text-rose-800"
+          >
+            {reprocessError}
+          </div>
+        )}
 
         {summary.totalCorrections > 0 && (
           <div className="border-t border-gray-200 bg-gray-50/70 px-5 py-3 text-[13px] text-gray-600 flex flex-wrap gap-x-5 gap-y-1">
@@ -181,7 +201,8 @@ const ResultReceipt: React.FC<ResultReceiptProps> = ({
         >
           correction rules
         </a>
-        . This file was never uploaded — it was cleaned in your browser.
+        . Changed a rule? Use Reapply rules — no need to pick the file again.
+        This file was never uploaded — it was cleaned in your browser.
       </p>
     </div>
   );
