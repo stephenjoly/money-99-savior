@@ -31,7 +31,7 @@ The release path is:
   - `staging` branch → **Money 99 Staging** (`staging-money-99-savior.stephenjoly.net`)
   - `main` branch → **Money 99 Production** (`money-99-savior.stephenjoly.net`)
 - Pull requests get disposable preview deployments (collaborator-only, max 3).
-- GitHub Actions only validates the Docker build; it does not deploy.
+- GitHub Actions runs tests, type checks, lint, and Docker build validation; it does not deploy. Checks cancel superseded runs per PR/branch and use a 30-minute job cap.
 - Do not fast-track a feature directly into `main`, and do not promote individual commits outside
   this path. Production promotion requires the owner's authorization.
 
@@ -44,7 +44,7 @@ The release path is:
   handing off, or ending a task. A checkpoint push is not approval to merge.
 - Verify the push succeeded and the remote branch contains the checkpoint. Never claim the remote
   contains unsaved edits; report any uncommitted, unpushed, or failed work explicitly.
-- Open a draft PR against `staging` early.
+- Follow the shared [agent-os CI efficiency skill](https://github.com/stephenjoly/agent-os/blob/main/skills/ci-efficiency/SKILL.md) for push cadence, retries, and workflow changes. Open a draft PR against `staging` after a coherent local checkpoint, or earlier when preview/review is needed; draft status still triggers checks and builds.
 - Before pushing, review `git diff origin/staging...HEAD --name-only` and update affected docs.
 - Do not force-push over another task's commits; never reset or discard unfinished work.
 
